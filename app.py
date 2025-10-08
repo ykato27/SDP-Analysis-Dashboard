@@ -141,8 +141,7 @@ with tab1:
 
 
 with tab2:
-    st.header('Step 2: 拠点内/工程間のスキルギャップ詳細分析 🔎 (高度比較)')
-    st.markdown("チーム間の平均値だけでなく、**スキルのバラツキ**も考慮し、具体的な教育ターゲットを特定します。")
+    # ... (前略) ...
 
     # ----------------------------------------------------
     # A. 拠点・チーム・スキル単位での比較（複数スキル選択対応）
@@ -156,7 +155,7 @@ with tab2:
         selected_skills = st.multiselect(
             '比較対象のスキルを選択',
             options=skill_names,
-            default=['成形技術', 'NCプログラム'] # 初期値として主要スキルを設定
+            default=['成形技術', 'NCプログラム']
         )
         
         st.markdown('---')
@@ -187,36 +186,35 @@ with tab2:
             # 拠点、チーム、選択されたスキルで集計し、平均値と標準偏差を計算
             df_pivot_agg = df_compare.groupby(['拠点', '組織・チーム'])[selected_skills].agg(['mean', 'std', 'size']).reset_index()
             
-            # DataFrameをPlotlyに適した形（ロングフォーマット）に変換
-            # 'mean'と'std'の列を縦に展開
+            # ★★★ 修正箇所：マルチインデックスをフラット化 ★★★
+            df_pivot_agg.columns = ['_'.join(map(str, col)).strip() for col in df_pivot_agg.columns.values]
+            df_pivot_agg = df_pivot_agg.rename(columns={'拠点_': '拠点', '組織・チーム_': '組織・チーム'})
+            
+            mean_cols = [f'{skill}_mean' for skill in selected_skills]
+            std_cols = [f'{skill}_std' for skill in selected_skills]
+            size_cols = [f'{skill}_size' for skill in selected_skills]
+
+            # 平均スコアの列を縦に展開 (melt)
             df_melted = df_pivot_agg.melt(
                 id_vars=['拠点', '組織・チーム'],
-                value_vars=[(skill, 'mean') for skill in selected_skills],
-                var_name=['スキル名', '指標'],
+                value_vars=mean_cols, # フラットな列名を使用
+                var_name='スキル指標',
                 value_name='平均スコア'
             )
             
-            # 標準偏差(バラツキ)のデータを結合
-            df_std = df_pivot_agg.melt(
-                id_vars=['拠点', '組織・チーム'],
-                value_vars=[(skill, 'std') for skill in selected_skills],
-                value_name='バラツキ'
-            )
-            df_melted['バラツキ'] = df_std['バラツキ']
+            # 標準偏差(バラツキ)とメンバー数のデータを結合
+            for skill in selected_skills:
+                df_melted[f'{skill}_std'] = df_pivot_agg[f'{skill}_std'].iloc[df_melted.index]
+                df_melted[f'{skill}_size'] = df_pivot_agg[f'{skill}_size'].iloc[df_melted.index]
             
-            # メンバー数を取得 (sizeの列は複数回存在するため、最初のものを使用)
-            df_size = df_pivot_agg.melt(
-                id_vars=['拠点', '組織・チーム'],
-                value_vars=[(skill, 'size') for skill in selected_skills],
-                value_name='メンバー数'
-            ).drop_duplicates(subset=['拠点', '組織・チーム'])
-            
-            # スキル名のタプルを文字列に変換 ('成形技術', 'mean') -> '成形技術'
-            df_melted['スキル名'] = df_melted['スキル名'].apply(lambda x: x[0])
-            
-            # メンバー数の列をメインのデータフレームに結合
-            df_melted = pd.merge(df_melted, df_size[['拠点', '組織・チーム', 'メンバー数']], on=['拠点', '組織・チーム'])
-            
+            # 展開されたスキル指標からスキル名と指標を抽出
+            df_melted['スキル名'] = df_melted['スキル指標'].apply(lambda x: x.split('_')[0])
+            df_melted['バラツキ'] = df_melted.apply(lambda row: row[f"{row['スキル名']}_std"], axis=1)
+            df_melted['メンバー数'] = df_melted.apply(lambda row: row[f"{row['スキル名']}_size"], axis=1)
+
+            # 不要な中間列を削除
+            df_melted = df_melted.drop(columns=['スキル指標'] + [f'{skill}_std' for skill in selected_skills] + [f'{skill}_size' for skill in selected_skills])
+
             # Plotlyで棒グラフを作成 (グループ化の軸を「チーム」と「スキル」にする)
             fig_bar_multi = px.bar(
                 df_melted, 
@@ -229,14 +227,18 @@ with tab2:
                 barmode='group'
             )
 
-            # エラーバーの追加（facet_colとgroupmodeに対応）
+            # エラーバーの追加
             for trace in fig_bar_multi.data:
-                skill = trace.name
-                location = trace.customdata[0] if trace.customdata is not None and len(trace.customdata) > 0 else '全拠点'
+                # Plotlyのデータトレースは、facet_colが設定されている場合、タプルの軸名を持たないため、カスタムデータから拠点を取得
+                location_index = trace.customdata[0][0] if trace.customdata is not None and len(trace.customdata) > 0 else 0
+                location = fig_bar_multi.layout['annotations'][location_index]['text'].replace('拠点=', '')
 
+                skill = trace.name
+                
                 # 該当するデータ行をフィルタリング
                 mask = (df_melted['スキル名'] == skill) & (df_melted['拠点'] == location)
                 
+                # Plotlyのトレースは内部的にソートされるため、元のインデックスでバラツキを取得
                 trace.error_y = dict(
                     type='data', 
                     symmetric=False, 
@@ -248,10 +250,9 @@ with tab2:
                 yaxis=dict(title='平均スコア (±1σ)', range=[1, 5.5]),
                 xaxis_title="組織・チーム",
                 legend_title="スキル",
-                bargap=0.1 # バー間のギャップを調整
+                bargap=0.1
             )
             
-            # 各バーにメンバー数を注釈として追加 (少し複雑なため、ここでは省略し、ホバーで確認推奨とします)
             st.plotly_chart(fig_bar_multi, use_container_width=True)
 
     st.info("💡 **分析のポイント**: エラーバー（黒い縦線）が長いほど、**チーム内のメンバー間でスキルのバラツキが大きい**ことを示します。また、複数のスキルを同時に比較することで、特定のチームがどのスキルで相対的に弱いか（例: T1は成形技術は高いがNCプログラムはT2より劣る）を詳細に把握できます。", icon="🎯")
