@@ -286,40 +286,20 @@ def show_step4_daily_trend(df_daily_prod, selected_location, selected_shift):
         st.warning("日次分析対象のデータが存在しません。", icon="⚠️")
     else:
         
-        # 2軸グラフの作成 (生産効率 vs 平均スキル予測値) - Layoutを辞書で定義
-        layout_config = {
-            'title': '日次 生産効率と平均スキル予測値の推移 (過去30日間)',
-            'xaxis': dict(title='日付'),
-            'yaxis': dict(
-                title='生産効率 (%)',
-                titlefont=dict(color='#1f77b4'),
-                tickfont=dict(color='#1f77b4'),
-                range=[df_analysis['生産効率 (%)'].min() * 0.98, df_analysis['生産効率 (%)'].max() * 1.02]
-            ),
-            'yaxis2': dict(
-                title='平均スキル予測値 (5点満点)',
-                titlefont=dict(color='#ff7f0e'),
-                tickfont=dict(color='#ff7f0e'),
-                overlaying='y', 
-                side='right',
-                range=[2.5, 4.5] 
-            ),
-            'legend': dict(x=0.1, y=1.1, orientation="h")
-        }
+        # 1. go.Figure() を空の状態で初期化
+        fig_time_series = go.Figure()
         
-        fig_time_series = go.Figure(layout=go.Layout(**layout_config))
-        
-        # 1. 生産効率 (左軸)
+        # 2. 生産効率 (左軸)
         fig_time_series.add_trace(go.Scatter(
             x=df_analysis['日付'], 
             y=df_analysis['生産効率 (%)'], 
             name='平均生産効率 (%)',
-            yaxis='y', 
+            yaxis='y', # プライマリ軸 ('y' または 'y1')
             mode='lines+markers',
             marker=dict(color='#1f77b4')
         ))
 
-        # 2. 平均スキル予測値 (右軸)
+        # 3. 平均スキル予測値 (右軸)
         fig_time_series.add_trace(go.Scatter(
             x=df_analysis['日付'], 
             y=df_analysis['平均スキル予測値'], 
@@ -328,6 +308,28 @@ def show_step4_daily_trend(df_daily_prod, selected_location, selected_shift):
             mode='lines+markers',
             marker=dict(color='#ff7f0e')
         ))
+
+        # 4. update_layout() を使って軸定義を適用 (この方式が最も安定)
+        fig_time_series.update_layout(
+            title='日次 生産効率と平均スキル予測値の推移 (過去30日間)',
+            xaxis=dict(title='日付'),
+            yaxis=dict( # プライマリY軸の設定
+                title='生産効率 (%)',
+                titlefont=dict(color='#1f77b4'),
+                tickfont=dict(color='#1f77b4'),
+                range=[df_analysis['生産効率 (%)'].min() * 0.98, df_analysis['生産効率 (%)'].max() * 1.02]
+            ),
+            yaxis2=dict( # セカンダリY軸の設定
+                title='平均スキル予測値 (5点満点)',
+                titlefont=dict(color='#ff7f0e'),
+                tickfont=dict(color='#ff7f0e'),
+                # overlaying='y' は yaxis に重ねることを意味する
+                overlaying='y', 
+                side='right',
+                range=[2.5, 4.5] 
+            ),
+            legend=dict(x=0.1, y=1.1, orientation="h")
+        )
 
         st.plotly_chart(fig_time_series, use_container_width=True)
         
