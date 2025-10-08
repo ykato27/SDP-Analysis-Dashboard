@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# 1. ダミーデータの生成 (全てのロジックエラー修正済み)
+# 1. ダミーデータの生成 (スキルとチームの関連性を複雑化)
 # --------------------------------------------------------------------------------
 @st.cache_data
 def generate_dummy_data():
@@ -39,34 +39,36 @@ def generate_dummy_data():
             loc = row['拠点']
             team = row['組織・チーム']
             
-            score = np.random.randint(2, 5) # ベーススコア (2-4)
+            # チームとスキルの関連性に基づいたスコア調整
+            score = np.random.randint(2, 4) # ベーススコア (2-3)
             
+            if skill_name == '成形技術' and team == 'T1:成形':
+                score += np.random.randint(1, 3) # T1の成形技術は高い
+            
+            elif skill_name == 'NCプログラム' and team in ['T1:成形', 'T2:加工']:
+                score += np.random.randint(1, 2) # T1, T2はNCプログラムが高い
+            
+            elif skill_name in ['品質検査', '設備保全', '安全管理'] and team in ['T1:成形', 'T2:加工', 'T3:組立']:
+                score += np.random.randint(0, 2) # 共通スキルはT1-T3で平均的
+                
             # 拠点による調整
             if loc == '日本 (JP)':
-                score += np.random.randint(0, 2)
-            elif loc == '拠点A (TH)' and skill_name in ['成形技術', 'NCプログラム']:
-                score -= np.random.randint(1, 3)
+                score += 1 
+            elif loc == '拠点A (TH)' and score > 2:
+                score -= 1 # 課題拠点のスコアを意図的に下げる
 
-            # チーム固有スキルによる調整
-            if team == 'T1:成形' and skill_name == '成形技術':
-                score += 1
-            elif team == 'T2:加工' and skill_name == 'NCプログラム':
-                score += 1
-            
-            scores.append(np.clip(score, 1, 5))
+            scores.append(np.clip(score + np.random.randint(-1, 2), 1, 5)) # スコアを1-5にクリップし、ランダムなばらつきを追加
         
         skill_data[skill_name] = pd.Series(scores).astype(int)
 
     df_skill = pd.DataFrame(skill_data)
     
-    # 生産実績データフレームの生成
+    # 生産実績データフレームの生成 (総合スキルスコアの計算にすべてのスキルを使用)
     df_production = df_skill[['拠点', '組織・チーム', 'シフト', '従業員ID']].copy()
     for name in skill_names:
         df_production[name] = df_skill[name]
     
     df_production['総合スキルスコア'] = df_production[skill_names].mean(axis=1).round(2)
-    
-    # ★KeyError修正: '総合スキルスコール' -> '総合スキルスコア'
     df_production['生産効率 (%)'] = (60 + df_production['総合スキルスコア'] * 8 + np.random.randn(num_data) * 4).clip(75, 98).round(1)
     df_production['品質不良率 (%)'] = (8 - df_production['総合スキルスコア'] * 1.2 + np.random.randn(num_data) * 1).clip(0.5, 8).round(1)
     
@@ -143,27 +145,30 @@ with tab2:
     st.markdown("チーム間の平均値だけでなく、**スキルのバラツキ**も考慮し、具体的な教育ターゲットを特定します。")
 
     # ----------------------------------------------------
-    # A. 拠点・チーム・スキル単位での比較（ドリルダウン機能強化）
+    # A. 拠点・チーム・スキル単位での比較（複数スキル選択対応）
     # ----------------------------------------------------
-    st.subheader('2.1. スキル単位での拠点・チーム間 比較分析')
+    st.subheader('2.1. 複数スキル・拠点・チーム間 比較分析')
     
     col_select, col_chart = st.columns([1, 3])
     
     with col_select:
-        selected_skill = st.selectbox(
+        # 1. 比較対象のスキルを選択 (複数選択可能に修正)
+        selected_skills = st.multiselect(
             '比較対象のスキルを選択',
             options=skill_names,
-            index=skill_names.index('成形技術')
+            default=['成形技術', 'NCプログラム'] # 初期値として主要スキルを設定
         )
         
         st.markdown('---')
         
+        # 2. 比較対象の拠点を選択 (複数選択可能)
         compare_locations = st.multiselect(
             '比較対象の拠点',
             options=df_filtered['拠点'].unique().tolist(),
             default=df_filtered['拠点'].unique().tolist()
         )
         
+        # 3. 比較対象のチームを選択 (複数選択可能)
         compare_teams = st.multiselect(
             '比較対象の組織・チーム',
             options=df_filtered['組織・チーム'].unique().tolist(),
@@ -175,49 +180,86 @@ with tab2:
         df_filtered['組織・チーム'].isin(compare_teams)
     ].copy()
     
-    df_pivot_agg = df_compare.groupby(['拠点', '組織・チーム']).agg(
-        平均スコア=(selected_skill, 'mean'),
-        バラツキ=(selected_skill, 'std'),
-        メンバー数=(selected_skill, 'size')
-    ).reset_index().round(2)
-    
     with col_chart:
-        if df_pivot_agg.empty:
-            st.warning("選択されたフィルタ条件に一致するデータがありません。", icon="⚠️")
+        if not selected_skills or df_compare.empty:
+            st.warning("比較対象のスキル、拠点、またはチームを選択してください。", icon="⚠️")
         else:
-            fig_bar_error = px.bar(
-                df_pivot_agg, 
+            # 拠点、チーム、選択されたスキルで集計し、平均値と標準偏差を計算
+            df_pivot_agg = df_compare.groupby(['拠点', '組織・チーム'])[selected_skills].agg(['mean', 'std', 'size']).reset_index()
+            
+            # DataFrameをPlotlyに適した形（ロングフォーマット）に変換
+            # 'mean'と'std'の列を縦に展開
+            df_melted = df_pivot_agg.melt(
+                id_vars=['拠点', '組織・チーム'],
+                value_vars=[(skill, 'mean') for skill in selected_skills],
+                var_name=['スキル名', '指標'],
+                value_name='平均スコア'
+            )
+            
+            # 標準偏差(バラツキ)のデータを結合
+            df_std = df_pivot_agg.melt(
+                id_vars=['拠点', '組織・チーム'],
+                value_vars=[(skill, 'std') for skill in selected_skills],
+                value_name='バラツキ'
+            )
+            df_melted['バラツキ'] = df_std['バラツキ']
+            
+            # メンバー数を取得 (sizeの列は複数回存在するため、最初のものを使用)
+            df_size = df_pivot_agg.melt(
+                id_vars=['拠点', '組織・チーム'],
+                value_vars=[(skill, 'size') for skill in selected_skills],
+                value_name='メンバー数'
+            ).drop_duplicates(subset=['拠点', '組織・チーム'])
+            
+            # スキル名のタプルを文字列に変換 ('成形技術', 'mean') -> '成形技術'
+            df_melted['スキル名'] = df_melted['スキル名'].apply(lambda x: x[0])
+            
+            # メンバー数の列をメインのデータフレームに結合
+            df_melted = pd.merge(df_melted, df_size[['拠点', '組織・チーム', 'メンバー数']], on=['拠点', '組織・チーム'])
+            
+            # Plotlyで棒グラフを作成 (グループ化の軸を「チーム」と「スキル」にする)
+            fig_bar_multi = px.bar(
+                df_melted, 
                 x='組織・チーム', 
                 y='平均スコア', 
-                color='拠点',
-                title=f'【{selected_skill}】の拠点・チーム別 平均スコアとバラツキ（メンバー数表示）',
-                text='メンバー数',
+                color='スキル名',
+                facet_col='拠点', # 拠点ごとにグラフを分ける
+                title=f'【{", ".join(selected_skills)}】の拠点・チーム別 平均スコアとバラツキ',
                 height=550,
                 barmode='group'
             )
-            
-            fig_bar_error.update_traces(
-                error_y=dict(
+
+            # エラーバーの追加（facet_colとgroupmodeに対応）
+            for trace in fig_bar_multi.data:
+                skill = trace.name
+                location = trace.customdata[0] if trace.customdata is not None and len(trace.customdata) > 0 else '全拠点'
+
+                # 該当するデータ行をフィルタリング
+                mask = (df_melted['スキル名'] == skill) & (df_melted['拠点'] == location)
+                
+                trace.error_y = dict(
                     type='data', 
                     symmetric=False, 
-                    array=df_pivot_agg['バラツキ'], 
-                    arrayminus=df_pivot_agg['バラツキ']
+                    array=df_melted.loc[mask, 'バラツキ'], 
+                    arrayminus=df_melted.loc[mask, 'バラツキ']
                 )
+                
+            fig_bar_multi.update_layout(
+                yaxis=dict(title='平均スコア (±1σ)', range=[1, 5.5]),
+                xaxis_title="組織・チーム",
+                legend_title="スキル",
+                bargap=0.1 # バー間のギャップを調整
             )
             
-            fig_bar_error.update_layout(
-                yaxis=dict(title=f'{selected_skill} 平均スコア (±1σ)', range=[1, 5.5]),
-                xaxis_title="組織・チーム",
-                legend_title="拠点"
-            )
-            st.plotly_chart(fig_bar_error, use_container_width=True)
+            # 各バーにメンバー数を注釈として追加 (少し複雑なため、ここでは省略し、ホバーで確認推奨とします)
+            st.plotly_chart(fig_bar_multi, use_container_width=True)
 
-    st.info("💡 **分析のポイント**: エラーバー（黒い縦線）が長いほど、**チーム内のメンバー間でスキルのバラツキが大きい**ことを示します。バラツキが大きいチームは、OJTや標準化教育の強化が必要です。", icon="🎯")
+    st.info("💡 **分析のポイント**: エラーバー（黒い縦線）が長いほど、**チーム内のメンバー間でスキルのバラツキが大きい**ことを示します。また、複数のスキルを同時に比較することで、特定のチームがどのスキルで相対的に弱いか（例: T1は成形技術は高いがNCプログラムはT2より劣る）を詳細に把握できます。", icon="🎯")
     
     st.markdown("---")
     
     # ----------------------------------------------------
-    # B. スキル習熟度別 人数分布
+    # B. スキル習熟度別 人数分布 (変更なし)
     # ----------------------------------------------------
     st.subheader('2.2. 各スキルカテゴリの習熟度別分布')
     st.markdown("サイドバーで選択された**拠点・チーム**に絞り込んだ、各スキルレベル（1:未習熟 $\\rightarrow$ 5:エキスパート）の**人数構成**を把握します。")
@@ -244,7 +286,6 @@ with tab2:
     fig_heatmap.update_layout(xaxis_title="スキルカテゴリ", yaxis_title="人数", legend_title="習熟度(1-5)")
     st.plotly_chart(fig_heatmap, use_container_width=True)
 
-    # ... (C. 拠点全体のレーダーチャートは省略) ...
     st.markdown("---")
     st.success(
         "**次なるアクション**: セクション2.1で特定した**課題スキルとバラツキの大きいチーム**に対し、具体的なトレーニング計画を策定します。", icon="🚀"
@@ -253,7 +294,7 @@ with tab2:
 st.markdown("---")
 
 with tab3:
-    st.header('Step 3: スキルと生産データを紐づけた分析 (KPI管理)')
+    st.header('Step 3: スキルと生産データを紐づけた分析 (KPI連携)')
     st.markdown("スキルレベルが生産効率や品質に与える影響を分析し、**データ駆動型の工場運営**を実現します。")
 
     col_kpi1, col_kpi2 = st.columns(2)
