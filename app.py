@@ -55,7 +55,8 @@ def generate_dummy_data():
     df_skill = pd.DataFrame(skill_data)
     
     # 生産実績データフレーム (KPI: スキルと相関を付与)
-    df_production = df_skill[['拠点', '組織・チーム', 'シフト', '従業員ID']].copy()
+    # ★★★ 修正箇所：スキル列も含めてコピーすることでKeyErrorを回避 ★★★
+    df_production = df_skill[['拠点', '組織・チーム', 'シフト', '従業員ID'] + skill_names].copy()
     
     # 総合スキルスコア (平均)
     df_production['総合スキルスコア'] = df_production[skill_names].mean(axis=1).round(2)
