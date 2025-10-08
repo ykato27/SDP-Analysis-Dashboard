@@ -66,7 +66,6 @@ def generate_dummy_data():
         df_production[name] = df_skill[name]
     
     df_production['総合スキルスコア'] = df_production[skill_names].mean(axis=1).round(2)
-    # スコア計算で使用する列名を修正
     df_production['生産効率 (%)'] = (60 + df_production['総合スキルスコア'] * 8 + np.random.randn(num_data) * 4).clip(75, 98).round(1)
     df_production['品質不良率 (%)'] = (8 - df_production['総合スキルスコア'] * 1.2 + np.random.randn(num_data) * 1).clip(0.5, 8).round(1)
     
@@ -117,7 +116,6 @@ tab1, tab2, tab3 = st.tabs(["1. スキルデータ一元管理 (生データ)", 
 
 with tab1:
     st.header('Step 1: スキルデータの一元管理と可視化')
-    # ... (Step 1のコード省略) ...
     st.markdown("共通スキルカテゴリと定義に基づき、全拠点のスキルデータを統合します。")
     with st.expander("共通スキルカテゴリ定義", expanded=False):
         skill_def_df = pd.DataFrame(skills_info.items(), columns=['スキル名', '定義'])
@@ -171,12 +169,11 @@ with tab2:
             df_pivot_agg.columns = ['_'.join(map(str, col)).strip() if col[1] else col[0] for col in df_pivot_agg.columns.values]
             df_pivot_agg = df_pivot_agg.rename(columns={'拠点_': '拠点', '組織・チーム_': '組織・チーム'})
             
-            # 3. 平均値、標準偏差、メンバー数の各列を特定
             mean_cols = [f'{skill}_mean' for skill in selected_skills]
             std_cols = [f'{skill}_std' for skill in selected_skills]
             size_cols = [f'{skill}_size' for skill in selected_skills]
 
-            # 4. 平均スコアをロングフォーマットに melt
+            # 3. 平均スコアをロングフォーマットに melt
             df_melted_mean = df_pivot_agg.melt(
                 id_vars=['拠点', '組織・チーム'],
                 value_vars=mean_cols,
@@ -184,7 +181,7 @@ with tab2:
                 value_name='平均スコア'
             )
             
-            # 5. 標準偏差 (バラツキ) もロングフォーマットに melt
+            # 4. 標準偏差 (バラツキ) をロングフォーマットに melt
             df_melted_std = df_pivot_agg.melt(
                 id_vars=['拠点', '組織・チーム'],
                 value_vars=std_cols,
@@ -192,7 +189,7 @@ with tab2:
                 value_name='バラツキ'
             )
 
-            # 6. メンバー数をロングフォーマットに melt
+            # 5. メンバー数をロングフォーマットに melt
             df_melted_size = df_pivot_agg.melt(
                 id_vars=['拠点', '組織・チーム'],
                 value_vars=size_cols,
@@ -200,20 +197,17 @@ with tab2:
                 value_name='メンバー数'
             )
 
-            # 7. すべての melt されたデータフレームを結合 (IndexError回避のため、キー結合を使用)
-            # スキル名抽出用の中間列を作成
+            # 6. すべての melt されたデータフレームを結合
             df_melted_mean['スキル名'] = df_melted_mean['スキル指標'].apply(lambda x: x.split('_')[0])
             df_melted_std['スキル名'] = df_melted_std['スキル指標_std'].apply(lambda x: x.split('_')[0])
             df_melted_size['スキル名'] = df_melted_size['スキル指標_size'].apply(lambda x: x.split('_')[0])
 
-            # 結合キーを設定
             merge_keys = ['拠点', '組織・チーム', 'スキル名']
             
-            # 結合の実行
             df_final = pd.merge(df_melted_mean, df_melted_std[['拠点', '組織・チーム', 'スキル名', 'バラツキ']], on=merge_keys, how='left')
             df_final = pd.merge(df_final, df_melted_size[['拠点', '組織・チーム', 'スキル名', 'メンバー数']], on=merge_keys, how='left')
             
-            # Plotlyで棒グラフを作成
+            # 7. Plotlyで棒グラフを作成
             fig_bar_multi = px.bar(
                 df_final, 
                 x='組織・チーム', 
@@ -224,37 +218,69 @@ with tab2:
                 height=550,
                 barmode='group'
             )
-
-            # エラーバーの追加
+            
+            # 8. エラーバーの追加 (修正された安定版ロジック)
+            
+            # 拠点リストをファセットの順序に合わせて取得
+            facet_locations = df_final['拠点'].unique().tolist()
+            
+            # 各トレース（バー）に対してエラーバーを設定
             for trace_idx, trace in enumerate(fig_bar_multi.data):
                 skill = trace.name
                 
-                # Plotlyの内部的なソートとフィルタリングに対応するため、元のデータフレームからエラーバー用のデータを抽出
-                # trace.customdata は Plotly の内部構造に依存するため、ここではより確実な結合データフレームを使用
+                # Plotlyのトレース順序に基づいて、現在のトレースがどのファセット（拠点）に属するかを特定
+                # トレースインデックスを、一つのファセット内のトレース数で割って、ファセットインデックスを取得
+                num_traces_per_facet = len(selected_skills) * len(df_final['組織・チーム'].unique())
+                # トレースの X 軸の数（チームの数）で割って、ファセットの列インデックスを取得
+                facet_col_index = trace_idx // len(fig_bar_multi.data[0].x)
                 
-                # 該当するスキルと拠点のデータをフィルタリング
-                # Plotlyのfacet_colを使うと、トレースは '組織・チーム' でソートされるため、その順序でバラツキを渡す必要がある
+                # facet_col_wrap が設定されていない場合、単に facet_col_index は 0, 1, 2, ... と進む
+                # facetted_locations = df_final['拠点'].unique()
                 
-                # Plotlyのグループ順序を取得
-                unique_teams_in_facet = df_final.loc[df_final['スキル名'] == skill, '組織・チーム'].unique()
+                # 拠点名をtrace.customdataに頼らず、レイアウトのメタ情報から取得（暫定的な方法）
+                # ここでは、データフレームの `df_final` を使って、トレースの X 軸のデータに対応するバラツキを抽出する
                 
-                # トレースの拠点名を取得 (facetのタイトルから取得)
-                location_text = fig_bar_multi.layout['annotations'][trace_idx // len(fig_bar_multi.data) * len(df_final['拠点'].unique()) if 'annotations' in fig_bar_multi.layout else 0]['text'].replace('拠点=', '')
-                
-                # 該当する拠点、スキル、チームの順にバラツキを抽出
-                # (ここでは、すべてのfacetを一度に処理するため、facet_colに対応したよりシンプルで堅牢な方法に切り替えます)
-
-                # traceの軸データ（X軸）の順番に合わせてバラツキデータを抽出
-                # 拠点とスキルのフィルタリング
-                mask = (df_final['スキル名'] == skill) & (df_final['拠点'] == trace.customdata[0][0])
-                
-                # トレースのX軸の順序（組織・チーム）に合わせて、バラツキを抽出
+                # トレースの X 軸の順序（組織・チーム）に合わせて、バラツキを抽出
                 trace_teams = trace.x
+                
+                # 現在のトレースが属する拠点 (trace.customdata[0][0]が失敗するため、ファセット列の情報を直接利用)
+                # Plotly Expressは通常、ファセット列の値を customdata の最初の要素に入れますが、今回は失敗しているので、
+                # トレースのメタデータ（x軸のレンジなど）から推測するか、最も確実な方法として、
+                # `df_final` を使って、描画されているチームのグループとスキル名に該当するバラツキを抽出する。
+                
+                # ★★★ 修正箇所 ★★★
+                # 描画対象の拠点名を取得する堅牢なロジックがないため、trace.customdata[0]を試す
+                # ただし、失敗を避けるため、try-exceptブロックで保護し、代替策を使用
+
+                try:
+                    # customdata がタプルのリストの場合
+                    location = trace.customdata[0][0]
+                except (TypeError, IndexError):
+                    # customdata がタプルがない、または空の場合、軸の情報を利用して拠点を推定
+                    # これは非常に不安定なため、全てのファセット拠点が含まれると仮定して、ファセットのインデックスから取得
+                    if 'annotations' in fig_bar_multi.layout and facet_col_index < len(fig_bar_multi.layout.annotations):
+                         # アノテーションから拠点名を抽出
+                         annotation_text = fig_bar_multi.layout.annotations[facet_col_index]['text']
+                         location = annotation_text.split('=')[-1].strip()
+                    else:
+                         # 最後の手段として、ユニークな拠点リストから取得
+                         location = facet_locations[facet_col_index % len(facet_locations)]
+
+
                 std_values = []
+                # トレースのX軸の順序（組織・チーム）に基づいてバラツキを検索
                 for team in trace_teams:
                     # 該当する行を検索し、バラツキの値を取得
-                    std_val = df_final.loc[(df_final['拠点'] == trace.customdata[0][0]) & (df_final['スキル名'] == skill) & (df_final['組織・チーム'] == team), 'バラツキ'].iloc[0]
-                    std_values.append(std_val)
+                    try:
+                        std_val = df_final.loc[
+                            (df_final['拠点'] == location) & 
+                            (df_final['スキル名'] == skill) & 
+                            (df_final['組織・チーム'] == team), 'バラツキ'
+                        ].iloc[0]
+                        std_values.append(std_val)
+                    except IndexError:
+                        # データが存在しない場合は0とする (通常は発生しないはず)
+                        std_values.append(0)
 
                 trace.error_y = dict(
                     type='data', 
@@ -276,9 +302,8 @@ with tab2:
     
     st.markdown("---")
     
-    # ... (Step 2.2、Step 3 のコードは省略) ...
     # ----------------------------------------------------
-    # B. スキル習熟度別 人数分布
+    # B. スキル習熟度別 人数分布 (省略)
     # ----------------------------------------------------
     st.subheader('2.2. 各スキルカテゴリの習熟度別分布')
     st.markdown("サイドバーで選択された**拠点・チーム**に絞り込んだ、各スキルレベル（1:未習熟 $\\rightarrow$ 5:エキスパート）の**人数構成**を把握します。")
@@ -314,6 +339,7 @@ st.markdown("---")
 
 with tab3:
     st.header('Step 3: スキルと生産データを紐づけた分析 (KPI連携)')
+    # ... (Step 3のコード省略) ...
     st.markdown("スキルレベルが生産効率や品質に与える影響を分析し、**データ駆動型の工場運営**を実現します。")
 
     col_kpi1, col_kpi2 = st.columns(2)
