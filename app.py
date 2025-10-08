@@ -4,12 +4,12 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# 1. ダミーデータの生成 (変更なし)
+# 1. ダミーデータの生成 (KeyError修正済み)
 # --------------------------------------------------------------------------------
 @st.cache_data
 def generate_dummy_data():
     np.random.seed(42)
-    num_data = 200 # データ量を増やして分析の深みを出す
+    num_data = 200
 
     # 拠点、組織、工程、シフト
     locations = ['日本 (JP)', '拠点A (TH)', '拠点B (US)', '拠点C (MX)']
@@ -54,9 +54,12 @@ def generate_dummy_data():
 
     df_skill = pd.DataFrame(skill_data)
     
-    # 生産実績データフレーム (KPI: スキルと相関を付与)
-    # ★★★ 修正箇所：スキル列も含めてコピーすることでKeyErrorを回避 ★★★
-    df_production = df_skill[['拠点', '組織・チーム', 'シフト', '従業員ID'] + skill_names].copy()
+    # 生産実績データフレームの生成
+    df_production = df_skill[['拠点', '組織・チーム', 'シフト', '従業員ID']].copy()
+    
+    # スキル列を df_production にコピー (一時的に必要)
+    for name in skill_names:
+        df_production[name] = df_skill[name]
     
     # 総合スキルスコア (平均)
     df_production['総合スキルスコア'] = df_production[skill_names].mean(axis=1).round(2)
@@ -74,12 +77,23 @@ def generate_dummy_data():
         df_production['総合スキルスコア'] * 1.2 + 
         np.random.randn(num_data) * 1 
     ).clip(0.5, 8).round(1)
+    
+    # df_productionからKPIと総合スキルスコアのみを抽出
+    production_kpi_only = df_production[[
+        '拠点', '組織・チーム', 'シフト', '従業員ID', 
+        '総合スキルスコア', '生産効率 (%)', '品質不良率 (%)'
+    ]].copy()
 
-    return df_skill, df_production, skills_info, skill_names
+
+    return df_skill, production_kpi_only, skills_info, skill_names
 
 # データ生成
-df_skill, df_production, skills_info, skill_names = generate_dummy_data()
-df_merged = pd.merge(df_skill, df_production, on=['拠点', '組織・チーム', 'シフト', '従業員ID'])
+# df_skill（スキル評価詳細）と df_production（KPI）を分けて取得
+df_skill, production_kpi_only, skills_info, skill_names = generate_dummy_data()
+
+# 最終的な分析用データフレームをマージ（スキル列の重複を避ける）
+df_merged = pd.merge(df_skill, production_kpi_only, on=['拠点', '組織・チーム', 'シフト', '従業員ID'])
+
 
 # Streamlitアプリケーション本体
 # --------------------------------------------------------------------------------
@@ -120,8 +134,12 @@ col1, col2, col3, col4 = st.columns(4)
 
 col1.metric("対象従業員数", f"{len(df_filtered)} 名")
 col2.metric("平均総合スキルスコア (5点満点)", f"{avg_skill_score:.2f}")
-col3.metric("平均生産効率", f"{total_efficiency:.1f} %", delta=f"{total_efficiency - df_merged['生産効率 (%)'].mean():.1f}")
-col4.metric("平均品質不良率", f"{total_defect_rate:.2f} %", delta=f"{total_defect_rate - df_merged['品質不良率 (%)'].mean():.2f}", delta_color="inverse")
+# 全体平均との差分を表示
+eff_delta = total_efficiency - df_merged['生産効率 (%)'].mean()
+col3.metric("平均生産効率", f"{total_efficiency:.1f} %", delta=f"{eff_delta:.1f}")
+# 品質不良率は低い方が良いので、delta_color="inverse"
+def_delta = total_defect_rate - df_merged['品質不良率 (%)'].mean()
+col4.metric("平均品質不良率", f"{total_defect_rate:.2f} %", delta=f"{def_delta:.2f}", delta_color="inverse")
 
 st.markdown("---")
 
@@ -138,11 +156,12 @@ with tab1:
         st.dataframe(skill_def_df, use_container_width=True)
 
     st.markdown("##### 📝 従業員別統合スキル評価データ (フィルタ適用済み)")
-    st.dataframe(df_filtered[['拠点', '組織・チーム', 'シフト', '従業員ID'] + skill_names].head(20), use_container_width=True, height=500)
+    # df_filteredの全列が表示されます
+    st.dataframe(df_filtered.head(20), use_container_width=True, height=500)
 
 with tab2:
     st.header('Step 2: 拠点間、工程間のスキルギャップ分析')
-    st.markdown("拠点や組織といったグループレベルでの**力量のバラつきを定量的に把握**します。")
+    st.markdown("拠点や組織といったグループレベルでの**力量のバラつきを定量的に把握**し、具体的な施策のターゲットを特定します。")
 
     # 拠点別詳細スキル平均の集計
     df_skill_pivot = df_filtered.groupby('拠点')[skill_names].mean().reset_index()
@@ -182,6 +201,8 @@ with tab2:
         st.plotly_chart(fig_radar, use_container_width=True)
 
     st.warning("このチャートから、**拠点A (TH)** は他の拠点と比較して「成形技術」と「NCプログラム」のスコアが低いことが明確に分かります。これは改善施策の具体的なターゲットとなります。", icon="🚨")
+
+---
 
 with tab3:
     st.header('Step 3: スキルと生産データを紐づけた分析 (KPI管理)')
