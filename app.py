@@ -4,8 +4,8 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# 1. ダミーデータの生成 (スキルとチームの関連性を複雑化)
-# --------------------------------------------------------------------------------
+# 1. ダミーデータの生成 (変更なし)
+# ... (generate_dummy_data 関数はそのまま使用)
 @st.cache_data
 def generate_dummy_data():
     np.random.seed(42)
@@ -39,36 +39,34 @@ def generate_dummy_data():
             loc = row['拠点']
             team = row['組織・チーム']
             
-            # チームとスキルの関連性に基づいたスコア調整
-            score = np.random.randint(2, 4) # ベーススコア (2-3)
+            score = np.random.randint(2, 4)
             
             if skill_name == '成形技術' and team == 'T1:成形':
-                score += np.random.randint(1, 3) # T1の成形技術は高い
+                score += np.random.randint(1, 3)
             
             elif skill_name == 'NCプログラム' and team in ['T1:成形', 'T2:加工']:
-                score += np.random.randint(1, 2) # T1, T2はNCプログラムが高い
+                score += np.random.randint(1, 2)
             
             elif skill_name in ['品質検査', '設備保全', '安全管理'] and team in ['T1:成形', 'T2:加工', 'T3:組立']:
-                score += np.random.randint(0, 2) # 共通スキルはT1-T3で平均的
+                score += np.random.randint(0, 2)
                 
-            # 拠点による調整
             if loc == '日本 (JP)':
                 score += 1 
             elif loc == '拠点A (TH)' and score > 2:
-                score -= 1 # 課題拠点のスコアを意図的に下げる
+                score -= 1
 
-            scores.append(np.clip(score + np.random.randint(-1, 2), 1, 5)) # スコアを1-5にクリップし、ランダムなばらつきを追加
+            scores.append(np.clip(score + np.random.randint(-1, 2), 1, 5))
         
         skill_data[skill_name] = pd.Series(scores).astype(int)
 
     df_skill = pd.DataFrame(skill_data)
     
-    # 生産実績データフレームの生成 (総合スキルスコアの計算にすべてのスキルを使用)
     df_production = df_skill[['拠点', '組織・チーム', 'シフト', '従業員ID']].copy()
     for name in skill_names:
         df_production[name] = df_skill[name]
     
     df_production['総合スキルスコア'] = df_production[skill_names].mean(axis=1).round(2)
+    # スコア計算で使用する列名を修正
     df_production['生産効率 (%)'] = (60 + df_production['総合スキルスコア'] * 8 + np.random.randn(num_data) * 4).clip(75, 98).round(1)
     df_production['品質不良率 (%)'] = (8 - df_production['総合スキルスコア'] * 1.2 + np.random.randn(num_data) * 1).clip(0.5, 8).round(1)
     
@@ -86,29 +84,18 @@ df_merged = pd.merge(df_skill, production_kpi_only, on=['拠点', '組織・チ�
 
 st.set_page_config(layout="wide", page_title="SDP分析ダッシュボード", page_icon="🏭")
 
-# --- タイトルと説明 ---
+# --- タイトルと説明 (省略) ---
 st.title('🏭 スキル・データ・プラットフォーム (SDP) 分析ダッシュボード')
 st.markdown("##### グローバル拠点における技能職の力量データに基づいた、生産効率・品質改善のためのデータドリブン分析")
 
-# --- サイドバーによるフィルタリング ---
+# --- サイドバーによるフィルタリング (省略) ---
 st.sidebar.header('⚙️ データフィルタ (大枠)')
-selected_location = st.sidebar.multiselect(
-    '拠点',
-    options=df_merged['拠点'].unique(),
-    default=df_merged['拠点'].unique()
-)
-selected_team = st.sidebar.multiselect(
-    '組織・チーム',
-    options=df_merged['組織・チーム'].unique(),
-    default=df_merged['組織・チーム'].unique()
-)
+selected_location = st.sidebar.multiselect('拠点', options=df_merged['拠点'].unique(), default=df_merged['拠点'].unique())
+selected_team = st.sidebar.multiselect('組織・チーム', options=df_merged['組織・チーム'].unique(), default=df_merged['組織・チーム'].unique())
 
-df_filtered = df_merged[
-    df_merged['拠点'].isin(selected_location) & 
-    df_merged['組織・チーム'].isin(selected_team)
-]
+df_filtered = df_merged[df_merged['拠点'].isin(selected_location) & df_merged['組織・チーム'].isin(selected_team)]
 
-# --- KPIサマリー ---
+# --- KPIサマリー (省略) ---
 total_efficiency = df_filtered['生産効率 (%)'].mean()
 total_defect_rate = df_filtered['品質不良率 (%)'].mean()
 avg_skill_score = df_filtered['総合スキルスコア'].mean()
@@ -130,18 +117,18 @@ tab1, tab2, tab3 = st.tabs(["1. スキルデータ一元管理 (生データ)", 
 
 with tab1:
     st.header('Step 1: スキルデータの一元管理と可視化')
+    # ... (Step 1のコード省略) ...
     st.markdown("共通スキルカテゴリと定義に基づき、全拠点のスキルデータを統合します。")
-    
     with st.expander("共通スキルカテゴリ定義", expanded=False):
         skill_def_df = pd.DataFrame(skills_info.items(), columns=['スキル名', '定義'])
         st.dataframe(skill_def_df, use_container_width=True)
-
     st.markdown("##### 📝 従業員別統合スキル評価データ (フィルタ適用済み)")
     st.dataframe(df_filtered.head(20), use_container_width=True, height=500)
 
 
 with tab2:
-    # ... (前略) ...
+    st.header('Step 2: 拠点内/工程間のスキルギャップ詳細分析 🔎 (高度比較)')
+    st.markdown("チーム間の平均値だけでなく、**スキルのバラツキ**も考慮し、具体的な教育ターゲットを特定します。")
 
     # ----------------------------------------------------
     # A. 拠点・チーム・スキル単位での比較（複数スキル選択対応）
@@ -151,23 +138,17 @@ with tab2:
     col_select, col_chart = st.columns([1, 3])
     
     with col_select:
-        # 1. 比較対象のスキルを選択 (複数選択可能に修正)
         selected_skills = st.multiselect(
             '比較対象のスキルを選択',
             options=skill_names,
             default=['成形技術', 'NCプログラム']
         )
-        
         st.markdown('---')
-        
-        # 2. 比較対象の拠点を選択 (複数選択可能)
         compare_locations = st.multiselect(
             '比較対象の拠点',
             options=df_filtered['拠点'].unique().tolist(),
             default=df_filtered['拠点'].unique().tolist()
         )
-        
-        # 3. 比較対象のチームを選択 (複数選択可能)
         compare_teams = st.multiselect(
             '比較対象の組織・チーム',
             options=df_filtered['組織・チーム'].unique().tolist(),
@@ -183,67 +164,103 @@ with tab2:
         if not selected_skills or df_compare.empty:
             st.warning("比較対象のスキル、拠点、またはチームを選択してください。", icon="⚠️")
         else:
-            # 拠点、チーム、選択されたスキルで集計し、平均値と標準偏差を計算
+            # 1. 拠点、チーム、選択されたスキルで集計
             df_pivot_agg = df_compare.groupby(['拠点', '組織・チーム'])[selected_skills].agg(['mean', 'std', 'size']).reset_index()
             
-            # ★★★ 修正箇所：マルチインデックスをフラット化 ★★★
-            df_pivot_agg.columns = ['_'.join(map(str, col)).strip() for col in df_pivot_agg.columns.values]
+            # 2. マルチインデックスをフラット化
+            df_pivot_agg.columns = ['_'.join(map(str, col)).strip() if col[1] else col[0] for col in df_pivot_agg.columns.values]
             df_pivot_agg = df_pivot_agg.rename(columns={'拠点_': '拠点', '組織・チーム_': '組織・チーム'})
             
+            # 3. 平均値、標準偏差、メンバー数の各列を特定
             mean_cols = [f'{skill}_mean' for skill in selected_skills]
             std_cols = [f'{skill}_std' for skill in selected_skills]
             size_cols = [f'{skill}_size' for skill in selected_skills]
 
-            # 平均スコアの列を縦に展開 (melt)
-            df_melted = df_pivot_agg.melt(
+            # 4. 平均スコアをロングフォーマットに melt
+            df_melted_mean = df_pivot_agg.melt(
                 id_vars=['拠点', '組織・チーム'],
-                value_vars=mean_cols, # フラットな列名を使用
+                value_vars=mean_cols,
                 var_name='スキル指標',
                 value_name='平均スコア'
             )
             
-            # 標準偏差(バラツキ)とメンバー数のデータを結合
-            for skill in selected_skills:
-                df_melted[f'{skill}_std'] = df_pivot_agg[f'{skill}_std'].iloc[df_melted.index]
-                df_melted[f'{skill}_size'] = df_pivot_agg[f'{skill}_size'].iloc[df_melted.index]
+            # 5. 標準偏差 (バラツキ) もロングフォーマットに melt
+            df_melted_std = df_pivot_agg.melt(
+                id_vars=['拠点', '組織・チーム'],
+                value_vars=std_cols,
+                var_name='スキル指標_std',
+                value_name='バラツキ'
+            )
+
+            # 6. メンバー数をロングフォーマットに melt
+            df_melted_size = df_pivot_agg.melt(
+                id_vars=['拠点', '組織・チーム'],
+                value_vars=size_cols,
+                var_name='スキル指標_size',
+                value_name='メンバー数'
+            )
+
+            # 7. すべての melt されたデータフレームを結合 (IndexError回避のため、キー結合を使用)
+            # スキル名抽出用の中間列を作成
+            df_melted_mean['スキル名'] = df_melted_mean['スキル指標'].apply(lambda x: x.split('_')[0])
+            df_melted_std['スキル名'] = df_melted_std['スキル指標_std'].apply(lambda x: x.split('_')[0])
+            df_melted_size['スキル名'] = df_melted_size['スキル指標_size'].apply(lambda x: x.split('_')[0])
+
+            # 結合キーを設定
+            merge_keys = ['拠点', '組織・チーム', 'スキル名']
             
-            # 展開されたスキル指標からスキル名と指標を抽出
-            df_melted['スキル名'] = df_melted['スキル指標'].apply(lambda x: x.split('_')[0])
-            df_melted['バラツキ'] = df_melted.apply(lambda row: row[f"{row['スキル名']}_std"], axis=1)
-            df_melted['メンバー数'] = df_melted.apply(lambda row: row[f"{row['スキル名']}_size"], axis=1)
-
-            # 不要な中間列を削除
-            df_melted = df_melted.drop(columns=['スキル指標'] + [f'{skill}_std' for skill in selected_skills] + [f'{skill}_size' for skill in selected_skills])
-
-            # Plotlyで棒グラフを作成 (グループ化の軸を「チーム」と「スキル」にする)
+            # 結合の実行
+            df_final = pd.merge(df_melted_mean, df_melted_std[['拠点', '組織・チーム', 'スキル名', 'バラツキ']], on=merge_keys, how='left')
+            df_final = pd.merge(df_final, df_melted_size[['拠点', '組織・チーム', 'スキル名', 'メンバー数']], on=merge_keys, how='left')
+            
+            # Plotlyで棒グラフを作成
             fig_bar_multi = px.bar(
-                df_melted, 
+                df_final, 
                 x='組織・チーム', 
                 y='平均スコア', 
                 color='スキル名',
-                facet_col='拠点', # 拠点ごとにグラフを分ける
+                facet_col='拠点',
                 title=f'【{", ".join(selected_skills)}】の拠点・チーム別 平均スコアとバラツキ',
                 height=550,
                 barmode='group'
             )
 
             # エラーバーの追加
-            for trace in fig_bar_multi.data:
-                # Plotlyのデータトレースは、facet_colが設定されている場合、タプルの軸名を持たないため、カスタムデータから拠点を取得
-                location_index = trace.customdata[0][0] if trace.customdata is not None and len(trace.customdata) > 0 else 0
-                location = fig_bar_multi.layout['annotations'][location_index]['text'].replace('拠点=', '')
-
+            for trace_idx, trace in enumerate(fig_bar_multi.data):
                 skill = trace.name
                 
-                # 該当するデータ行をフィルタリング
-                mask = (df_melted['スキル名'] == skill) & (df_melted['拠点'] == location)
+                # Plotlyの内部的なソートとフィルタリングに対応するため、元のデータフレームからエラーバー用のデータを抽出
+                # trace.customdata は Plotly の内部構造に依存するため、ここではより確実な結合データフレームを使用
                 
-                # Plotlyのトレースは内部的にソートされるため、元のインデックスでバラツキを取得
+                # 該当するスキルと拠点のデータをフィルタリング
+                # Plotlyのfacet_colを使うと、トレースは '組織・チーム' でソートされるため、その順序でバラツキを渡す必要がある
+                
+                # Plotlyのグループ順序を取得
+                unique_teams_in_facet = df_final.loc[df_final['スキル名'] == skill, '組織・チーム'].unique()
+                
+                # トレースの拠点名を取得 (facetのタイトルから取得)
+                location_text = fig_bar_multi.layout['annotations'][trace_idx // len(fig_bar_multi.data) * len(df_final['拠点'].unique()) if 'annotations' in fig_bar_multi.layout else 0]['text'].replace('拠点=', '')
+                
+                # 該当する拠点、スキル、チームの順にバラツキを抽出
+                # (ここでは、すべてのfacetを一度に処理するため、facet_colに対応したよりシンプルで堅牢な方法に切り替えます)
+
+                # traceの軸データ（X軸）の順番に合わせてバラツキデータを抽出
+                # 拠点とスキルのフィルタリング
+                mask = (df_final['スキル名'] == skill) & (df_final['拠点'] == trace.customdata[0][0])
+                
+                # トレースのX軸の順序（組織・チーム）に合わせて、バラツキを抽出
+                trace_teams = trace.x
+                std_values = []
+                for team in trace_teams:
+                    # 該当する行を検索し、バラツキの値を取得
+                    std_val = df_final.loc[(df_final['拠点'] == trace.customdata[0][0]) & (df_final['スキル名'] == skill) & (df_final['組織・チーム'] == team), 'バラツキ'].iloc[0]
+                    std_values.append(std_val)
+
                 trace.error_y = dict(
                     type='data', 
                     symmetric=False, 
-                    array=df_melted.loc[mask, 'バラツキ'], 
-                    arrayminus=df_melted.loc[mask, 'バラツキ']
+                    array=std_values,
+                    arrayminus=std_values
                 )
                 
             fig_bar_multi.update_layout(
@@ -259,8 +276,9 @@ with tab2:
     
     st.markdown("---")
     
+    # ... (Step 2.2、Step 3 のコードは省略) ...
     # ----------------------------------------------------
-    # B. スキル習熟度別 人数分布 (変更なし)
+    # B. スキル習熟度別 人数分布
     # ----------------------------------------------------
     st.subheader('2.2. 各スキルカテゴリの習熟度別分布')
     st.markdown("サイドバーで選択された**拠点・チーム**に絞り込んだ、各スキルレベル（1:未習熟 $\\rightarrow$ 5:エキスパート）の**人数構成**を把握します。")
