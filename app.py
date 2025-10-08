@@ -263,7 +263,7 @@ def show_step3_linkage(df_filtered):
     )
 
 def show_step4_daily_trend(df_daily_prod, selected_location, selected_shift):
-    """Step 4: 日次生産データとの傾向分析を表示する。（ValueError対策済み）"""
+    """Step 4: 日次生産データとの傾向分析を表示する。（ValueError対策済み・改善版）"""
     st.header('Step 4: 日次生産データとの傾向分析')
     st.markdown("直近の日次生産データと、それに影響を与えたと推測される**平均スキルレベルの変動**を比較分析します。")
 
@@ -285,50 +285,64 @@ def show_step4_daily_trend(df_daily_prod, selected_location, selected_shift):
     if df_analysis.empty:
         st.warning("日次分析対象のデータが存在しません。", icon="⚠️")
     else:
+        # Plotly subplotsを使った2軸グラフの作成（より安定した方法）
+        from plotly.subplots import make_subplots
         
-        # 1. go.Figure() を空の状態で初期化
-        fig_time_series = go.Figure()
+        fig_time_series = make_subplots(specs=[[{"secondary_y": True}]])
         
-        # 2. 生産効率 (左軸)
-        fig_time_series.add_trace(go.Scatter(
-            x=df_analysis['日付'], 
-            y=df_analysis['生産効率 (%)'], 
-            name='平均生産効率 (%)',
-            yaxis='y', # プライマリ軸 ('y' または 'y1')
-            mode='lines+markers',
-            marker=dict(color='#1f77b4')
-        ))
+        # 生産効率 (左軸)
+        fig_time_series.add_trace(
+            go.Scatter(
+                x=df_analysis['日付'], 
+                y=df_analysis['生産効率 (%)'], 
+                name='平均生産効率 (%)',
+                mode='lines+markers',
+                marker=dict(color='#1f77b4', size=8),
+                line=dict(width=2)
+            ),
+            secondary_y=False
+        )
 
-        # 3. 平均スキル予測値 (右軸)
-        fig_time_series.add_trace(go.Scatter(
-            x=df_analysis['日付'], 
-            y=df_analysis['平均スキル予測値'], 
-            name='平均スキル予測値',
-            yaxis='y2',
-            mode='lines+markers',
-            marker=dict(color='#ff7f0e')
-        ))
+        # 平均スキル予測値 (右軸)
+        fig_time_series.add_trace(
+            go.Scatter(
+                x=df_analysis['日付'], 
+                y=df_analysis['平均スキル予測値'], 
+                name='平均スキル予測値',
+                mode='lines+markers',
+                marker=dict(color='#ff7f0e', size=8),
+                line=dict(width=2, dash='dash')
+            ),
+            secondary_y=True
+        )
 
-        # 4. update_layout() を使って軸定義を適用 (この方式が最も安定)
+        # 軸のタイトルと範囲を設定
+        fig_time_series.update_xaxes(title_text="日付")
+        
+        fig_time_series.update_yaxes(
+            title_text="生産効率 (%)", 
+            secondary_y=False,
+            range=[df_analysis['生産効率 (%)'].min() * 0.98, df_analysis['生産効率 (%)'].max() * 1.02]
+        )
+        
+        fig_time_series.update_yaxes(
+            title_text="平均スキル予測値 (5点満点)", 
+            secondary_y=True,
+            range=[2.5, 4.5]
+        )
+
+        # レイアウトの設定
         fig_time_series.update_layout(
-            title='日次 生産効率と平均スキル予測値の推移 (過去30日間)',
-            xaxis=dict(title='日付'),
-            yaxis=dict( # プライマリY軸の設定
-                title='生産効率 (%)',
-                titlefont=dict(color='#1f77b4'),
-                tickfont=dict(color='#1f77b4'),
-                range=[df_analysis['生産効率 (%)'].min() * 0.98, df_analysis['生産効率 (%)'].max() * 1.02]
+            title_text='日次 生産効率と平均スキル予測値の推移 (過去30日間)',
+            hovermode='x unified',
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
             ),
-            yaxis2=dict( # セカンダリY軸の設定
-                title='平均スキル予測値 (5点満点)',
-                titlefont=dict(color='#ff7f0e'),
-                tickfont=dict(color='#ff7f0e'),
-                # overlaying='y' は yaxis に重ねることを意味する
-                overlaying='y', 
-                side='right',
-                range=[2.5, 4.5] 
-            ),
-            legend=dict(x=0.1, y=1.1, orientation="h")
+            height=500
         )
 
         st.plotly_chart(fig_time_series, use_container_width=True)
@@ -339,7 +353,7 @@ def show_step4_daily_trend(df_daily_prod, selected_location, selected_shift):
     
     st.markdown("---")
     st.success(
-        "**次なるアクション**: 日次データから特定された**スキルが低い特定日**のメンバー構成（従業員ID）をドリルダウンし、そのメンバーに集中的なフォローアップ教育を実施します。",
+        "**次なるアクション**: 日次データから特定された**スキルが低い特定日**のメンバー構成(従業員ID)をドリルダウンし、そのメンバーに集中的なフォローアップ教育を実施します。",
         icon="🚀"
     )
 
