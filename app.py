@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# 1. ダミーデータの生成 (全てのロジックエラー修正済み)
+# 1. ダミーデータの生成 (変更なし)
 # --------------------------------------------------------------------------------
 @st.cache_data
 def generate_dummy_data():
@@ -89,8 +89,6 @@ def generate_dummy_data():
 
 # データ生成
 df_skill, production_kpi_only, skills_info, skill_names = generate_dummy_data()
-
-# 最終的な分析用データフレームをマージ
 df_merged = pd.merge(df_skill, production_kpi_only, on=['拠点', '組織・チーム', 'シフト', '従業員ID'])
 
 
@@ -133,10 +131,8 @@ col1, col2, col3, col4 = st.columns(4)
 
 col1.metric("対象従業員数", f"{len(df_filtered)} 名")
 col2.metric("平均総合スキルスコア (5点満点)", f"{avg_skill_score:.2f}")
-# 全体平均との差分を表示
 eff_delta = total_efficiency - df_merged['生産効率 (%)'].mean()
 col3.metric("平均生産効率", f"{total_efficiency:.1f} %", delta=f"{eff_delta:.1f}")
-# 品質不良率は低い方が良いので、delta_color="inverse"
 def_delta = total_defect_rate - df_merged['品質不良率 (%)'].mean()
 col4.metric("平均品質不良率", f"{total_defect_rate:.2f} %", delta=f"{def_delta:.2f}", delta_color="inverse")
 
@@ -149,36 +145,91 @@ with tab1:
     st.header('Step 1: スキルデータの一元管理と可視化')
     st.markdown("共通スキルカテゴリと定義に基づき、全拠点のスキルデータを統合します。")
     
-    # スキル一覧
     with st.expander("共通スキルカテゴリ定義", expanded=False):
         skill_def_df = pd.DataFrame(skills_info.items(), columns=['スキル名', '定義'])
         st.dataframe(skill_def_df, use_container_width=True)
 
     st.markdown("##### 📝 従業員別統合スキル評価データ (フィルタ適用済み)")
-    # df_filteredの全列を表示
     st.dataframe(df_filtered.head(20), use_container_width=True, height=500)
 
 with tab2:
-    st.header('Step 2: 拠点間、工程間のスキルギャップ分析')
-    st.markdown("拠点や組織といったグループレベルでの**力量のバラつきを定量的に把握**し、具体的な施策のターゲットを特定します。")
+    st.header('Step 2: 拠点内/工程間のスキルギャップ詳細分析 🔎')
+    st.markdown("グループレベルでの力量のバラつきに加え、**拠点内部のチーム別ギャップ**と**各スキルの習熟度分布**を分析し、具体的な教育ターゲットを特定します。")
 
-    # 拠点別詳細スキル平均の集計
-    df_skill_pivot = df_filtered.groupby('拠点')[skill_names].mean().reset_index()
-    df_skill_pivot['総合平均'] = df_skill_pivot[skill_names].mean(axis=1)
-    df_skill_pivot = df_skill_pivot.sort_values('総合平均', ascending=False).set_index('拠点').round(2)
+    # ----------------------------------------------------
+    # A. 拠点別 vs チーム別 スキル平均比較 (ドリルダウン)
+    # ----------------------------------------------------
+    st.subheader('2.1. 拠点 $\\rightarrow$ 組織・チーム別 スキル平均比較')
     
-    col_a, col_b = st.columns([1, 1.5])
+    # 拠点とチームで集計
+    df_pivot = df_filtered.groupby(['拠点', '組織・チーム'])[skill_names].mean().reset_index()
     
-    with col_a:
-        st.markdown("##### 拠点別 スキル評価スコア比較 (詳細)")
+    # Plotlyで階層的な棒グラフを作成
+    fig_drilldown = px.bar(
+        df_pivot, 
+        x='組織・チーム', 
+        y=skill_names, 
+        color='拠点',
+        title='組織・チーム別 (工程別) 詳細スキルスコア',
+        height=500,
+        barmode='group'
+    )
+    fig_drilldown.update_layout(yaxis_title="平均スキルスコア (5点満点)", legend_title="拠点")
+    st.plotly_chart(fig_drilldown, use_container_width=True)
+    
+    st.info("💡 **分析の深掘り**: 上記チャートで、特定の拠点の特定のチーム（例: **拠点A (TH) の T1:成形**）が、対応するスキル（例: **成形技術**）で他の拠点・チームに比べて低いことが一目で分かります。")
+    
+    st.markdown("---")
+    
+    # ----------------------------------------------------
+    # B. スキル習熟度別 人数分布 (マトリックス分析の準備)
+    # ----------------------------------------------------
+    st.subheader('2.2. 各スキルカテゴリの習熟度別分布')
+    st.markdown("ターゲットとなるチームの、各スキルレベル（1:未習熟 $\\rightarrow$ 5:エキスパート）の**人数構成**を把握します。")
+    
+    # フィルタリングされたデータに対して、各スキルを習熟度でカウント
+    skill_distribution = pd.DataFrame()
+    for skill in skill_names:
+        count = df_filtered.groupby(skill).size().reset_index(name='人数')
+        count['スキル名'] = skill
+        skill_distribution = pd.concat([skill_distribution, count])
+    
+    skill_distribution = skill_distribution.rename(columns={skill_distribution.columns[0]: '習熟度'})
+    
+    # ヒートマップで可視化
+    # 習熟度をカテゴリカルに変換し、順序を確保
+    skill_distribution['習熟度'] = skill_distribution['習熟度'].astype(int).astype(str)
+    
+    fig_heatmap = px.bar(
+        skill_distribution,
+        x='スキル名',
+        y='人数',
+        color='習熟度',
+        title='全フィルタ対象者のスキル習熟度別人数構成',
+        color_discrete_sequence=px.colors.sequential.Viridis_d,
+        height=450
+    )
+    fig_heatmap.update_layout(xaxis_title="スキルカテゴリ", yaxis_title="人数", legend_title="習熟度(1-5)")
+    st.plotly_chart(fig_heatmap, use_container_width=True)
+
+    # ----------------------------------------------------
+    # C. 拠点全体のレーダーチャート (旧バージョンから残す)
+    # ----------------------------------------------------
+    st.subheader('2.3. 拠点全体のスケーラブルレーダーチャート (俯瞰)')
+    
+    col_c, col_d = st.columns([1, 1.5])
+
+    with col_c:
+        # 拠点別詳細スキル平均の集計 (再集計)
+        df_skill_pivot = df_filtered.groupby('拠点')[skill_names].mean().reset_index()
+        df_skill_pivot['総合平均'] = df_skill_pivot[skill_names].mean(axis=1)
+        df_skill_pivot = df_skill_pivot.sort_values('総合平均', ascending=False).set_index('拠点').round(2)
+        st.markdown("##### 拠点別 スキル評価スコア比較 (サマリー)")
         st.dataframe(df_skill_pivot, use_container_width=True)
 
-    with col_b:
+    with col_d:
         st.markdown("##### 拠点別 スキルレーダーチャート (ギャップ可視化)")
-        # レーダーチャートの描画データ準備
         radar_df = df_skill_pivot.drop(columns=['総合平均']).reset_index()
-        
-        # Plotlyでレーダーチャートを作成
         fig_radar = go.Figure()
         
         for index, row in radar_df.iterrows():
@@ -190,18 +241,18 @@ with tab2:
             ))
 
         fig_radar.update_layout(
-            polar=dict(
-                radialaxis=dict(visible=True, range=[1, 5]) # スキルスコアの範囲を設定 (1-5)
-            ),
+            polar=dict(radialaxis=dict(visible=True, range=[1, 5])),
             showlegend=True,
             height=450,
             margin=dict(l=50, r=50, t=50, b=50)
         )
         st.plotly_chart(fig_radar, use_container_width=True)
+    
+    st.success(
+        "**次なるアクション**: セクション2.1で特定した**課題チーム**と、セクション2.2で特定した**低習熟度スキル**の交点（例: 拠点A-T1:成形チームの成形技術スコア1-2の人）に対し、具体的なトレーニング計画（OJTやe-ラーニング）を策定します。", icon="🎯"
+    )
 
-    st.warning("このチャートから、**拠点A (TH)** は他の拠点と比較して「成形技術」と「NCプログラム」のスコアが低いことが明確に分かります。これは改善施策の具体的なターゲットとなります。", icon="🚨")
-
-st.markdown("---") # <--- ★この行に修正済み★
+st.markdown("---")
 
 with tab3:
     st.header('Step 3: スキルと生産データを紐づけた分析 (KPI管理)')
@@ -211,14 +262,13 @@ with tab3:
 
     with col_kpi1:
         st.markdown("##### スキル vs 生産効率 (%) - 散布図")
-        # Plotlyでインタラクティブな散布図を作成
         fig_eff = px.scatter(
             df_filtered,
             x='総合スキルスコア',
             y='生産効率 (%)',
             color='拠点',
             hover_data=['従業員ID', '組織・チーム'],
-            trendline='ols', # 回帰直線
+            trendline='ols',
             title='総合スキルと生産効率の相関'
         )
         st.plotly_chart(fig_eff, use_container_width=True)
@@ -226,7 +276,6 @@ with tab3:
 
     with col_kpi2:
         st.markdown("##### スキル vs 品質不良率 (%) - 散布図")
-        # Plotlyでインタラクティブな散布図を作成
         fig_def = px.scatter(
             df_filtered,
             x='総合スキルスコア',
@@ -242,7 +291,6 @@ with tab3:
     st.markdown("---")
     st.subheader('🎯 最適な配置、教育の実行に向けたKPIとスキルレベルの統合')
     
-    # 拠点別 KPI と スキルを統合したサマリー
     kpi_skill_summary = df_filtered.groupby('拠点').agg(
         {'生産効率 (%)': 'mean', '品質不良率 (%)': 'mean', '総合スキルスコア': 'mean'}
     ).reset_index()
@@ -258,7 +306,7 @@ with tab3:
     st.plotly_chart(fig_bar, use_container_width=True)
     
     st.success(
-        "**次なるアクション (Step 4)**: スキルスコアが低く、かつKPIが低い拠点（例: **拠点A (TH)**）を特定し、その拠点へ「成形技術」の高い日本の技術者を短期派遣するか、またはオンライン教育プログラムを重点的に割り当てるなど、**最適な配置・教育施策**を実行します。",
+        "**次なるアクション**: スキルスコアが低く、かつKPIが低い拠点（例: **拠点A (TH)**）を特定し、その拠点へ「成形技術」の高い日本の技術者を短期派遣するか、またはオンライン教育プログラムを重点的に割り当てるなど、**最適な配置・教育施策**を実行します。",
         icon="🚀"
     )
 
