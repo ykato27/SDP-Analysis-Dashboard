@@ -5,7 +5,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, timedelta
 
-# 1. ダミーデータの生成 (変更あり: 日次データとランダムな評価日を追加)
+# 1. ダミーデータの生成 (スキルとチームの関連性、日次データを複雑化)
+# --------------------------------------------------------------------------------
 @st.cache_data
 def generate_dummy_data():
     np.random.seed(42)
@@ -29,7 +30,6 @@ def generate_dummy_data():
         '組織・チーム': np.random.choice(teams, num_data),
         'シフト': np.random.choice(shifts, num_data),
         '従業員ID': [f'EMP_{i+1:03d}' for i in range(num_data)],
-        # 評価日を過去半年間でランダムに設定
         '評価日': [date.today() - timedelta(days=np.random.randint(1, 180)) for _ in range(num_data)]
     }
     
@@ -41,30 +41,32 @@ def generate_dummy_data():
             loc = row['拠点']
             team = row['組織・チーム']
             
-            score = np.random.randint(2, 4)
+            # チームとスキルの関連性に基づいたスコア調整
+            score = np.random.randint(2, 4) # ベーススコア (2-3)
             
             if skill_name == '成形技術' and team == 'T1:成形':
-                score += np.random.randint(1, 3)
+                score += np.random.randint(1, 3) # T1の成形技術は高い
             
             elif skill_name == 'NCプログラム' and team in ['T1:成形', 'T2:加工']:
-                score += np.random.randint(1, 2)
+                score += np.random.randint(1, 2) # T1, T2はNCプログラムが高い
             
             elif skill_name in ['品質検査', '設備保全', '安全管理'] and team in ['T1:成形', 'T2:加工', 'T3:組立']:
-                score += np.random.randint(0, 2)
+                score += np.random.randint(0, 2) # 共通スキルはT1-T3で平均的
                 
+            # 拠点による調整
             if loc == '日本 (JP)':
                 score += 1 
             elif loc == '拠点A (TH)' and score > 2:
-                score -= 1
+                score -= 1 # 課題拠点のスコアを意図的に下げる
 
-            scores.append(np.clip(score + np.random.randint(-1, 2), 1, 5))
+            scores.append(np.clip(score + np.random.randint(-1, 2), 1, 5)) # スコアを1-5にクリップし、ランダムなばらつきを追加
         
         skill_data[skill_name] = pd.Series(scores).astype(int)
 
     df_skill = pd.DataFrame(skill_data)
     
     # ----------------------------------------------------
-    # 日次生産実績データ (新たに生成)
+    # 日次生産実績データ
     # ----------------------------------------------------
     start_date = date.today() - timedelta(days=30)
     end_date = date.today()
@@ -78,7 +80,7 @@ def generate_dummy_data():
                 avg_skill_for_day = df_skill.loc[
                     (df_skill['拠点'] == loc) & (df_skill['シフト'] == shift), 
                     skill_names
-                ].mean().mean() # その日、その拠点のシフトにいる人の平均スキルレベルをシミュレート
+                ].mean().mean()
                 
                 if pd.isna(avg_skill_for_day):
                     avg_skill_for_day = 3.0
@@ -91,7 +93,7 @@ def generate_dummy_data():
                     '日付': single_date,
                     '拠点': loc,
                     'シフト': shift,
-                    '日次生産量 (Unit)': np.random.randint(1000, 5000) * (1 + (avg_skill_for_day - 3.5) / 5), # スキルが高いと生産量も高い
+                    '日次生産量 (Unit)': np.random.randint(1000, 5000) * (1 + (avg_skill_for_day - 3.5) / 5),
                     '生産効率 (%)': efficiency,
                     '品質不良率 (%)': defect_rate,
                     '平均スキル予測値': avg_skill_for_day.round(2)
@@ -101,8 +103,6 @@ def generate_dummy_data():
     
     # スキルデータに総合スコアとKPIを加える
     df_skill['総合スキルスコア'] = df_skill[skill_names].mean(axis=1).round(2)
-    
-    # このダッシュボードの分析のため、個人KPIはランダムに生成し直す
     df_skill['生産効率 (%)'] = (60 + df_skill['総合スキルスコア'] * 8 + np.random.randn(num_data) * 4).clip(75, 98).round(1)
     df_skill['品質不良率 (%)'] = (8 - df_skill['総合スキルスコア'] * 1.2 + np.random.randn(num_data) * 1).clip(0.5, 8).round(1)
     
@@ -117,6 +117,7 @@ df_skill, df_daily_prod, skills_info, skill_names = generate_dummy_data()
 
 st.set_page_config(layout="wide", page_title="SDP分析ダッシュボード", page_icon="🏭")
 
+# --- タイトルと説明 ---
 st.title('🏭 スキル・データ・プラットフォーム (SDP) 分析ダッシュボード')
 st.markdown("##### グローバル拠点における技能職の力量データに基づいた、生産効率・品質改善のためのデータドリブン分析")
 
@@ -129,10 +130,10 @@ selected_shift = st.sidebar.multiselect('シフト', options=df_skill['シフト
 df_filtered = df_skill[
     df_skill['拠点'].isin(selected_location) & 
     df_skill['組織・チーム'].isin(selected_team) &
-    df_skill['シフト'].isin(selected_shift) # シフトでフィルタ
+    df_skill['シフト'].isin(selected_shift)
 ].copy()
 
-# --- KPIサマリー (省略) ---
+# --- KPIサマリー ---
 total_efficiency = df_filtered['生産効率 (%)'].mean()
 total_defect_rate = df_filtered['品質不良率 (%)'].mean()
 avg_skill_score = df_filtered['総合スキルスコア'].mean()
@@ -154,20 +155,22 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "1. スキルデータ一元管理 (生データ)", 
     "2. ギャップ分析と対策", 
     "3. スキルと生産性 (KPI連携)",
-    "4. 日次傾向分析" # 新規タブ追加
+    "4. 日次傾向分析" 
 ])
 
-# --- Step 1 (変更なし) ---
+# --- Step 1 ---
 with tab1:
     st.header('Step 1: スキルデータの一元管理と可視化')
     st.markdown("共通スキルカテゴリと定義に基づき、全拠点のスキルデータを統合します。")
+    
     with st.expander("共通スキルカテゴリ定義", expanded=False):
         skill_def_df = pd.DataFrame(skills_info.items(), columns=['スキル名', '定義'])
         st.dataframe(skill_def_df, use_container_width=True)
+
     st.markdown("##### 📝 従業員別統合スキル評価データ (フィルタ適用済み)")
     st.dataframe(df_filtered.head(20), use_container_width=True, height=500)
 
-# --- Step 2 (変更あり: シフト軸の追加) ---
+# --- Step 2 ---
 with tab2:
     st.header('Step 2: 拠点内/工程間のスキルギャップ詳細分析 🔎 (高度比較)')
     st.markdown("チーム間の平均値だけでなく、**スキルのバラツキ**も考慮し、具体的な教育ターゲットを特定します。")
@@ -196,7 +199,6 @@ with tab2:
             options=df_filtered['組織・チーム'].unique().tolist(),
             default=['T1:成形', 'T2:加工']
         )
-        # ★★★ 新たにシフトを追加 ★★★
         compare_shifts = st.multiselect(
             '比較対象のシフト',
             options=df_filtered['シフト'].unique().tolist(),
@@ -213,13 +215,12 @@ with tab2:
         if not selected_skills or df_compare.empty:
             st.warning("比較対象のスキル、拠点、チーム、またはシフトを選択してください。", icon="⚠️")
         else:
-            # 1. 拠点、チーム、シフト、選択されたスキルで集計 (集計軸に 'シフト' を追加)
+            # 1. 拠点、チーム、シフト、選択されたスキルで集計
             group_cols = ['拠点', '組織・チーム', 'シフト']
             df_pivot_agg = df_compare.groupby(group_cols)[selected_skills].agg(['mean', 'std', 'size']).reset_index()
             
             # 2. マルチインデックスをフラット化
             df_pivot_agg.columns = ['_'.join(map(str, col)).strip() if col[1] else col[0] for col in df_pivot_agg.columns.values]
-            # 集計軸の名前を修正
             df_pivot_agg = df_pivot_agg.rename(columns={c + '_': c for c in group_cols})
             
             mean_cols = [f'{skill}_mean' for skill in selected_skills]
@@ -232,10 +233,8 @@ with tab2:
                 value_name='平均スコア'
             )
             
-            # 4. 標準偏差 (バラツキ) とメンバー数も melt し、平均値と結合
+            # 4. 標準偏差 (バラツキ) とメンバー数も結合
             df_melted_mean['スキル名'] = df_melted_mean['スキル指標'].apply(lambda x: x.split('_')[0])
-            
-            df_pivot_agg['merge_key'] = df_pivot_agg['拠点'] + '_' + df_pivot_agg['組織・チーム'] + '_' + df_pivot_agg['シフト']
             
             df_melted_mean['バラツキ'] = df_melted_mean.apply(
                 lambda row: df_pivot_agg.loc[
@@ -271,31 +270,19 @@ with tab2:
 
             # エラーバーの追加
             facet_locations = df_final['拠点'].unique().tolist()
-            num_teams_shifts = len(df_final['チーム_シフト'].unique())
+            num_locations = len(facet_locations)
             
             for trace_idx, trace in enumerate(fig_bar_multi.data):
                 skill = trace.name
                 
-                # トレースのX軸の順序（チーム_シフト）に基づいてバラツキを検索
-                trace_teams_shifts = trace.x
-                
-                # 現在のトレースが属する拠点 (ファセット列の情報を利用して推定)
-                # Plotly Expressはトレースを 'スキル名' → '拠点' の順に描画することが多いため、
-                # トレースインデックスから現在の拠点名を推定
-                
-                # アノテーションから拠点名を抽出するロジックを使用
-                # 拠点名は facet_col の数だけアノテーションに格納される
-                num_locations = len(facet_locations)
-                
-                # 描画されている拠点のアノテーションインデックスを計算
-                # 1つの拠点あたりのトレース数 = len(selected_skills) * len(df_final['組織・チーム'].unique()) * len(df_final['シフト'].unique()) / len(facet_locations)
-                # → 実際には、Plotlyが持つトレースの数は、(選択スキル数) * (拠点数) になる
-                # トレースインデックスをスキル数で割った結果を拠点のインデックスとして使用
+                # トレースインデックスから拠点ファセットのインデックスを推定
+                # (選択スキル数) * (拠点数) がトレース総数。一拠点あたりのトレース数len(selected_skills)で割る
                 facet_col_index = trace_idx // len(selected_skills)
-                
                 location = facet_locations[facet_col_index % num_locations]
                 
                 std_values = []
+                trace_teams_shifts = trace.x
+                
                 for team_shift in trace_teams_shifts:
                     team, shift = team_shift.split(' (')
                     shift = shift.replace(')', '')
@@ -332,7 +319,7 @@ with tab2:
     st.markdown("---")
     
     # ----------------------------------------------------
-    # B. スキル習熟度別 人数分布 (変更なし)
+    # B. スキル習熟度別 人数分布
     # ----------------------------------------------------
     st.subheader('2.2. 各スキルカテゴリの習熟度別分布')
     st.markdown("サイドバーで選択された**拠点・チーム・シフト**に絞り込んだ、各スキルレベル（1:未習熟 $\\rightarrow$ 5:エキスパート）の**人数構成**を把握します。")
@@ -364,7 +351,7 @@ with tab2:
         "**次なるアクション**: セクション2.1で特定した**課題スキルとバラツキの大きいチーム・シフト**に対し、具体的なトレーニング計画を策定します。", icon="🚀"
     )
 
-# --- Step 3 (変更なし) ---
+# --- Step 3 ---
 with tab3:
     st.header('Step 3: スキルと生産データを紐づけた分析 (KPI連携)')
     st.markdown("スキルレベルが生産効率や品質に与える影響を分析し、**データ駆動型の工場運営**を実現します。")
@@ -423,7 +410,7 @@ with tab3:
         icon="🚀"
     )
 
-# --- Step 4 (新規追加) ---
+# --- Step 4 ---
 with tab4:
     st.header('Step 4: 日次生産データとの傾向分析')
     st.markdown("直近の日次生産データと、それに影響を与えたと推測される**平均スキルレベルの変動**を比較分析します。")
@@ -433,9 +420,10 @@ with tab4:
         df_daily_prod['シフト'].isin(selected_shift)
     ].copy()
 
-    # 拠点とシフトの選択肢をフィルタリング
-    selected_analysis_locations = st.multiselect('分析対象の拠点 (日次)', options=df_daily_filtered['拠点'].unique().tolist(), default=df_daily_filtered['拠点'].unique().tolist())
-    selected_analysis_shifts = st.multiselect('分析対象のシフト (日次)', options=df_daily_filtered['シフト'].unique().tolist(), default=df_daily_filtered['シフト'].unique().tolist())
+    col_daily_filter, _ = st.columns([1, 3])
+    with col_daily_filter:
+        selected_analysis_locations = st.multiselect('分析対象の拠点 (日次)', options=df_daily_filtered['拠点'].unique().tolist(), default=df_daily_filtered['拠点'].unique().tolist())
+        selected_analysis_shifts = st.multiselect('分析対象のシフト (日次)', options=df_daily_filtered['シフト'].unique().tolist(), default=df_daily_filtered['シフト'].unique().tolist())
 
     df_analysis = df_daily_filtered[
         df_daily_filtered['拠点'].isin(selected_analysis_locations) & 
@@ -447,14 +435,33 @@ with tab4:
     else:
         
         # 2軸グラフの作成 (生産効率 vs 平均スキル予測値)
-        fig_time_series = go.Figure()
-
+        # Layoutを初期化時に定義 (ValueError対策)
+        fig_time_series = go.Figure(layout=go.Layout(
+            title='日次 生産効率と平均スキル予測値の推移 (過去30日間)',
+            xaxis=dict(title='日付'),
+            yaxis=dict(
+                title='生産効率 (%)',
+                titlefont=dict(color='#1f77b4'),
+                tickfont=dict(color='#1f77b4'),
+                range=[df_analysis['生産効率 (%)'].min() * 0.98, df_analysis['生産効率 (%)'].max() * 1.02]
+            ),
+            yaxis2=dict(
+                title='平均スキル予測値 (5点満点)',
+                titlefont=dict(color='#ff7f0e'),
+                tickfont=dict(color='#ff7f0e'),
+                overlaying='y', 
+                side='right',
+                range=[2.5, 4.5] 
+            ),
+            legend=dict(x=0.1, y=1.1, orientation="h")
+        ))
+        
         # 1. 生産効率 (左軸)
         fig_time_series.add_trace(go.Scatter(
             x=df_analysis['日付'], 
             y=df_analysis['生産効率 (%)'], 
             name='平均生産効率 (%)',
-            yaxis='y1',
+            yaxis='y1', 
             mode='lines+markers',
             marker=dict(color='#1f77b4')
         ))
@@ -468,26 +475,6 @@ with tab4:
             mode='lines+markers',
             marker=dict(color='#ff7f0e')
         ))
-
-        fig_time_series.update_layout(
-            title='日次 生産効率と平均スキル予測値の推移 (過去30日間)',
-            xaxis=dict(title='日付'),
-            yaxis=dict(
-                title='生産効率 (%)',
-                titlefont=dict(color='#1f77b4'),
-                tickfont=dict(color='#1f77b4'),
-                range=[df_analysis['生産効率 (%)'].min() * 0.98, df_analysis['生産効率 (%)'].max() * 1.02]
-            ),
-            yaxis2=dict(
-                title='平均スキル予測値 (5点満点)',
-                titlefont=dict(color='#ff7f0e'),
-                tickfont=dict(color='#ff7f0e'),
-                overlaying='y',
-                side='right',
-                range=[2.5, 4.5] # スキルスコアのレンジに合わせる
-            ),
-            legend=dict(x=0.1, y=1.1, orientation="h")
-        )
 
         st.plotly_chart(fig_time_series, use_container_width=True)
         
