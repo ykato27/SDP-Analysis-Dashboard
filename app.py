@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# 1. ダミーデータの生成 (スキル固有性を追加)
+# 1. ダミーデータの生成 (全てのロジックエラー修正済み)
 # --------------------------------------------------------------------------------
 @st.cache_data
 def generate_dummy_data():
@@ -31,7 +31,7 @@ def generate_dummy_data():
         '従業員ID': [f'EMP_{i+1:03d}' for i in range(num_data)],
     }
     
-    df_temp = pd.DataFrame(skill_data) # 一時データフレームを作成
+    df_temp = pd.DataFrame(skill_data)
 
     for skill_name in skill_names:
         scores = []
@@ -43,30 +43,31 @@ def generate_dummy_data():
             
             # 拠点による調整
             if loc == '日本 (JP)':
-                score += np.random.randint(0, 2) # 日本は少し高め
+                score += np.random.randint(0, 2)
             elif loc == '拠点A (TH)' and skill_name in ['成形技術', 'NCプログラム']:
-                score -= np.random.randint(1, 3) # 課題のある拠点は低め
+                score -= np.random.randint(1, 3)
 
             # チーム固有スキルによる調整
             if team == 'T1:成形' and skill_name == '成形技術':
-                score += 1 # 成形チームの成形技術は高め
+                score += 1
             elif team == 'T2:加工' and skill_name == 'NCプログラム':
-                score += 1 # 加工チームのNCプログラムは高め
+                score += 1
             
-            scores.append(np.clip(score, 1, 5)) # スコアを1-5にクリップ
+            scores.append(np.clip(score, 1, 5))
         
-        # スキルスコアは必ず整数 (Int) にすることで NaN を回避
         skill_data[skill_name] = pd.Series(scores).astype(int)
 
     df_skill = pd.DataFrame(skill_data)
     
-    # 生産実績データフレームの生成 (後略)
+    # 生産実績データフレームの生成
     df_production = df_skill[['拠点', '組織・チーム', 'シフト', '従業員ID']].copy()
     for name in skill_names:
         df_production[name] = df_skill[name]
     
     df_production['総合スキルスコア'] = df_production[skill_names].mean(axis=1).round(2)
-    df_production['生産効率 (%)'] = (60 + df_production['総合スキルスコール'] * 8 + np.random.randn(num_data) * 4).clip(75, 98).round(1)
+    
+    # ★KeyError修正: '総合スキルスコール' -> '総合スキルスコア'
+    df_production['生産効率 (%)'] = (60 + df_production['総合スキルスコア'] * 8 + np.random.randn(num_data) * 4).clip(75, 98).round(1)
     df_production['品質不良率 (%)'] = (8 - df_production['総合スキルスコア'] * 1.2 + np.random.randn(num_data) * 1).clip(0.5, 8).round(1)
     
     production_kpi_only = df_production[['拠点', '組織・チーム', 'シフト', '従業員ID', '総合スキルスコア', '生産効率 (%)', '品質不良率 (%)']].copy()
@@ -105,7 +106,7 @@ df_filtered = df_merged[
     df_merged['組織・チーム'].isin(selected_team)
 ]
 
-# ... (KPIサマリーのコードは省略) ...
+# --- KPIサマリー ---
 total_efficiency = df_filtered['生産効率 (%)'].mean()
 total_defect_rate = df_filtered['品質不良率 (%)'].mean()
 avg_skill_score = df_filtered['総合スキルスコア'].mean()
@@ -149,27 +150,24 @@ with tab2:
     col_select, col_chart = st.columns([1, 3])
     
     with col_select:
-        # 1. 比較対象のスキルを選択
         selected_skill = st.selectbox(
             '比較対象のスキルを選択',
             options=skill_names,
-            index=skill_names.index('成形技術') # 初期値は成形技術
+            index=skill_names.index('成形技術')
         )
         
         st.markdown('---')
         
-        # 2. 比較対象の拠点を選択 (複数選択可能)
         compare_locations = st.multiselect(
             '比較対象の拠点',
             options=df_filtered['拠点'].unique().tolist(),
             default=df_filtered['拠点'].unique().tolist()
         )
         
-        # 3. 比較対象のチームを選択 (複数選択可能)
         compare_teams = st.multiselect(
             '比較対象の組織・チーム',
             options=df_filtered['組織・チーム'].unique().tolist(),
-            default=['T1:成形', 'T2:加工'] # 初期値として成形と加工を推奨
+            default=['T1:成形', 'T2:加工']
         )
         
     df_compare = df_filtered[
@@ -177,16 +175,11 @@ with tab2:
         df_filtered['組織・チーム'].isin(compare_teams)
     ].copy()
     
-    # 拠点とチームで集計し、平均値と標準偏差を計算
     df_pivot_agg = df_compare.groupby(['拠点', '組織・チーム']).agg(
         平均スコア=(selected_skill, 'mean'),
         バラツキ=(selected_skill, 'std'),
         メンバー数=(selected_skill, 'size')
     ).reset_index().round(2)
-    
-    # バラツキをエラーバーとして表現
-    df_pivot_agg['エラー上限'] = df_pivot_agg['平均スコア'] + df_pivot_agg['バラツキ']
-    df_pivot_agg['エラー下限'] = df_pivot_agg['平均スコア'] - df_pivot_agg['バラツキ']
     
     with col_chart:
         if df_pivot_agg.empty:
@@ -198,12 +191,11 @@ with tab2:
                 y='平均スコア', 
                 color='拠点',
                 title=f'【{selected_skill}】の拠点・チーム別 平均スコアとバラツキ（メンバー数表示）',
-                text='メンバー数', # バー上にメンバー数を表示
+                text='メンバー数',
                 height=550,
                 barmode='group'
             )
             
-            # 標準偏差 (バラツキ) をエラーバーとして追加
             fig_bar_error.update_traces(
                 error_y=dict(
                     type='data', 
@@ -225,7 +217,7 @@ with tab2:
     st.markdown("---")
     
     # ----------------------------------------------------
-    # B. スキル習熟度別 人数分布 (変更なし)
+    # B. スキル習熟度別 人数分布
     # ----------------------------------------------------
     st.subheader('2.2. 各スキルカテゴリの習熟度別分布')
     st.markdown("サイドバーで選択された**拠点・チーム**に絞り込んだ、各スキルレベル（1:未習熟 $\\rightarrow$ 5:エキスパート）の**人数構成**を把握します。")
@@ -261,8 +253,7 @@ with tab2:
 st.markdown("---")
 
 with tab3:
-    st.header('Step 3: スキルと生産データを紐づけた分析 (KPI連携)')
-    # ... (Step 3 のコードは変更なし) ...
+    st.header('Step 3: スキルと生産データを紐づけた分析 (KPI管理)')
     st.markdown("スキルレベルが生産効率や品質に与える影響を分析し、**データ駆動型の工場運営**を実現します。")
 
     col_kpi1, col_kpi2 = st.columns(2)
