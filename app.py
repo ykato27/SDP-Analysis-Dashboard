@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# 1. ダミーデータの生成 (KeyError, SyntaxError修正済み)
+# 1. ダミーデータの生成 (全てのロジックエラー修正済み)
 # --------------------------------------------------------------------------------
 @st.cache_data
 def generate_dummy_data():
@@ -50,7 +50,7 @@ def generate_dummy_data():
                 # その他拠点はバラつきあり (2-4点)
                 score = np.random.randint(2, 5)
             skill_scores.append(score)
-        skill_data[skill_name] = skill_scores
+        skill_data[skill_name] = pd.Series(skill_scores)
 
     df_skill = pd.DataFrame(skill_data)
     
@@ -88,12 +88,9 @@ def generate_dummy_data():
     return df_skill, production_kpi_only, skills_info, skill_names
 
 # データ生成
-# df_skill（スキル評価詳細）と df_production（KPI）を分けて取得
 df_skill, production_kpi_only, skills_info, skill_names = generate_dummy_data()
 
-# 最終的な分析用データフレームをマージ（スキル列の重複を避ける）
-# df_skillには個別のスキル列があり、production_kpi_onlyにはKPI列があるため、
-# このマージにより分析に必要な全ての情報が一つのDataFrameに格納されます。
+# 最終的な分析用データフレームをマージ
 df_merged = pd.merge(df_skill, production_kpi_only, on=['拠点', '組織・チーム', 'シフト', '従業員ID'])
 
 
@@ -204,7 +201,7 @@ with tab2:
 
     st.warning("このチャートから、**拠点A (TH)** は他の拠点と比較して「成形技術」と「NCプログラム」のスコアが低いことが明確に分かります。これは改善施策の具体的なターゲットとなります。", icon="🚨")
 
----
+st.markdown("---") # <--- ★この行に修正済み★
 
 with tab3:
     st.header('Step 3: スキルと生産データを紐づけた分析 (KPI管理)')
