@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# 1. ダミーデータの生成 (KeyError修正済み)
+# 1. ダミーデータの生成 (KeyError, SyntaxError修正済み)
 # --------------------------------------------------------------------------------
 @st.cache_data
 def generate_dummy_data():
@@ -57,7 +57,7 @@ def generate_dummy_data():
     # 生産実績データフレームの生成
     df_production = df_skill[['拠点', '組織・チーム', 'シフト', '従業員ID']].copy()
     
-    # スキル列を df_production にコピー (一時的に必要)
+    # スキル列を df_production にコピー (総合スキルスコア計算に必要)
     for name in skill_names:
         df_production[name] = df_skill[name]
     
@@ -92,6 +92,8 @@ def generate_dummy_data():
 df_skill, production_kpi_only, skills_info, skill_names = generate_dummy_data()
 
 # 最終的な分析用データフレームをマージ（スキル列の重複を避ける）
+# df_skillには個別のスキル列があり、production_kpi_onlyにはKPI列があるため、
+# このマージにより分析に必要な全ての情報が一つのDataFrameに格納されます。
 df_merged = pd.merge(df_skill, production_kpi_only, on=['拠点', '組織・チーム', 'シフト', '従業員ID'])
 
 
@@ -156,7 +158,7 @@ with tab1:
         st.dataframe(skill_def_df, use_container_width=True)
 
     st.markdown("##### 📝 従業員別統合スキル評価データ (フィルタ適用済み)")
-    # df_filteredの全列が表示されます
+    # df_filteredの全列を表示
     st.dataframe(df_filtered.head(20), use_container_width=True, height=500)
 
 with tab2:
