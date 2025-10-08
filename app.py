@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# 1. ダミーデータの生成 (エラー対策のため、データ型を調整)
+# 1. ダミーデータの生成 (全てのロジックエラー修正済み)
 # --------------------------------------------------------------------------------
 @st.cache_data
 def generate_dummy_data():
@@ -45,7 +45,7 @@ def generate_dummy_data():
                 score = np.random.randint(2, 5)
             skill_scores.append(score)
         
-        # ★修正ポイント: スキルスコアは必ず整数 (Int) にすることで NaN を回避
+        # スキルスコアは必ず整数 (Int) にすることで NaN を回避
         skill_data[skill_name] = pd.Series(skill_scores).astype(int)
 
     df_skill = pd.DataFrame(skill_data)
@@ -108,27 +108,28 @@ df_filtered = df_merged[
     df_merged['組織・チーム'].isin(selected_team)
 ]
 
-# --- KPIサマリー (省略) ---
-# ... (KPIサマリーのコードは省略し、本題のTabへ)
+# --- 全体KPIサマリー (モダンデザイン) ---
 total_efficiency = df_filtered['生産効率 (%)'].mean()
 total_defect_rate = df_filtered['品質不良率 (%)'].mean()
 avg_skill_score = df_filtered['総合スキルスコア'].mean()
 
 st.markdown("---")
 st.subheader("📊 主要KPIサマリー (フィルタ適用済み)")
+
 col1, col2, col3, col4 = st.columns(4)
+
 col1.metric("対象従業員数", f"{len(df_filtered)} 名")
 col2.metric("平均総合スキルスコア (5点満点)", f"{avg_skill_score:.2f}")
 eff_delta = total_efficiency - df_merged['生産効率 (%)'].mean()
 col3.metric("平均生産効率", f"{total_efficiency:.1f} %", delta=f"{eff_delta:.1f}")
 def_delta = total_defect_rate - df_merged['品質不良率 (%)'].mean()
 col4.metric("平均品質不良率", f"{total_defect_rate:.2f} %", delta=f"{def_delta:.2f}", delta_color="inverse")
+
 st.markdown("---")
 
 # --- タブによる分析ステップの表示 ---
 tab1, tab2, tab3 = st.tabs(["1. スキルデータ一元管理 (生データ)", "2. ギャップ分析と対策", "3. スキルと生産性 (KPI連携)"])
 
-# ... (Tab 1 のコードは省略) ...
 with tab1:
     st.header('Step 1: スキルデータの一元管理と可視化')
     st.markdown("共通スキルカテゴリと定義に基づき、全拠点のスキルデータを統合します。")
@@ -150,11 +151,10 @@ with tab2:
     # ----------------------------------------------------
     st.subheader('2.1. 拠点 $\\rightarrow$ 組織・チーム別 スキル深掘り')
     
-    # ユーザーにドリルダウン対象の拠点を選択させる
     drilldown_location = st.selectbox(
         '分析対象の拠点を選択してください（未選択の場合は全拠点を表示）',
         options=['全拠点'] + df_filtered['拠点'].unique().tolist(),
-        index=0 # 初期値は全拠点
+        index=0
     )
     
     if drilldown_location == '全拠点':
@@ -182,23 +182,20 @@ with tab2:
     st.markdown("---")
     
     # ----------------------------------------------------
-    # B. スキル習熟度別 人数分布 (エラー修正済み)
+    # B. スキル習熟度別 人数分布 (AttributeError修正済み)
     # ----------------------------------------------------
     st.subheader('2.2. 各スキルカテゴリの習熟度別分布')
     st.markdown("選択された**拠点・チーム**に絞り込んだ、各スキルレベル（1:未習熟 $\\rightarrow$ 5:エキスパート）の**人数構成**を把握します。")
     
-    # フィルタリングされたデータ (df_filtered) を使用
     skill_distribution = pd.DataFrame()
     for skill in skill_names:
-        # スキルスコアは全てInt型なので問題なくgroupbyできる
         count = df_filtered.groupby(skill).size().reset_index(name='人数')
         count['スキル名'] = skill
         skill_distribution = pd.concat([skill_distribution, count])
     
     skill_distribution = skill_distribution.rename(columns={skill_distribution.columns[0]: '習熟度'})
     
-    # ★エラー修正: 習熟度が既にInt型なので、astype(int)をスキップして、strに変換するのみ
-    # または、安全のためastype(str)のみを使用
+    # 習熟度を文字列に変換し、グラフのカテゴリ順序を指定
     skill_distribution['習熟度'] = skill_distribution['習熟度'].astype(str)
     
     # ヒートマップで可視化
@@ -208,8 +205,8 @@ with tab2:
         y='人数',
         color='習熟度',
         title=f'スキル習熟度別人数構成（対象人数: {len(df_filtered)}名）',
-        color_discrete_sequence=px.colors.sequential.Viridis_d,
-        category_orders={"習熟度": ["1", "2", "3", "4", "5"]}, # 順序を指定
+        color_discrete_sequence=px.colors.sequential.Viridis, # ★Viridis_d から Viridis に修正
+        category_orders={"習熟度": ["1", "2", "3", "4", "5"]}, 
         height=450
     )
     fig_heatmap.update_layout(xaxis_title="スキルカテゴリ", yaxis_title="人数", legend_title="習熟度(1-5)")
@@ -256,7 +253,6 @@ with tab2:
 
 st.markdown("---")
 
-# ... (Tab 3 のコードは省略) ...
 with tab3:
     st.header('Step 3: スキルと生産データを紐づけた分析 (KPI管理)')
     st.markdown("スキルレベルが生産効率や品質に与える影響を分析し、**データ駆動型の工場運営**を実現します。")
