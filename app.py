@@ -39,9 +39,15 @@ if 'priority_skill' not in st.session_state:
 @st.cache_data
 def load_data():
     """データをキャッシュして読み込み"""
-    return generate_dummy_data()
+    df_skill, df_daily_prod, skill_hierarchy, all_skills, skill_to_category, skill_categories, processes = generate_dummy_data()
+    return df_skill, df_daily_prod, skill_hierarchy, all_skills, skill_to_category, skill_categories, processes
 
-df_skill, df_daily_prod, skill_hierarchy, all_skills, skill_to_category, skill_categories, processes = load_data()
+# データをロード
+try:
+    df_skill, df_daily_prod, skill_hierarchy, all_skills, skill_to_category, skill_categories, processes = load_data()
+except Exception as e:
+    st.error(f"データロードエラー: {str(e)}")
+    st.stop()
 
 # --------------------------------------------------------------------------------
 # サイドバー: SDP分析メニュー
@@ -139,7 +145,7 @@ if st.session_state.selected_menu == "🏠 ホーム":
 elif st.session_state.selected_menu == "📊 エグゼクティブサマリー":
     df_summary = show_executive_summary(df_skill, df_daily_prod)
     # サマリー情報をセッション状態に保存
-    if not df_summary.empty:
+    if df_summary is not None and not df_summary.empty:
         st.session_state.df_summary = df_summary
 
 elif st.session_state.selected_menu == "🔬 根本原因分析":
@@ -159,7 +165,7 @@ elif st.session_state.selected_menu == "🔬 根本原因分析":
 
 elif st.session_state.selected_menu == "📋 アクションプラン":
     if st.session_state.target_location:
-        priority_skill = st.session_state.priority_skill if st.session_state.priority_skill else skill_names[0]
+        priority_skill = st.session_state.priority_skill if st.session_state.priority_skill else "製銑 - 設備操作"
         show_action_plan(
             df_skill, 
             st.session_state.target_location,

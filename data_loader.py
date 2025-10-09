@@ -1,12 +1,18 @@
 # data_loader.py
-import streamlit as st
+# 鉄鋼業向けスキル・生産データ生成モジュール
+
 import pandas as pd
 import numpy as np
 from datetime import date, timedelta
 
-# ダミーデータの生成とロード関数を定義
-@st.cache_data
 def generate_dummy_data():
+    """
+    鉄鋼業向けのダミーデータを生成
+    
+    Returns:
+        tuple: (df_skill, df_daily_prod, skill_hierarchy, all_skills, 
+                skill_to_category, skill_categories, processes)
+    """
     # --- 定義 ---
     np.random.seed(42)
     num_data = 250
