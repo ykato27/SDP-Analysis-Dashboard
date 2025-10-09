@@ -229,7 +229,7 @@ def show_root_cause_analysis(df_skill, target_location, all_skills, skill_to_cat
         barmode='group',
         height=400,
         yaxis=dict(range=[1, 5])
-    ))
+    )
     
     st.plotly_chart(fig_compare, use_container_width=True)
     
