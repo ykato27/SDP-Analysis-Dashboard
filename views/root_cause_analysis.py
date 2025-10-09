@@ -70,16 +70,33 @@ def show_root_cause_analysis(df_skill, target_location, all_skills, skill_to_cat
         for category in skill_categories:
             # 対象拠点のデータ
             target_process_data = df_target[df_target['工程'] == process]
+            
+            # データ存在チェック
+            if len(target_process_data) == 0:
+                continue
+            
             category_skills = skill_hierarchy[category]['skills']
-            target_mean = target_process_data[category_skills].mean().mean()
-            target_std = target_process_data[category_skills].std().mean()
+            
+            # スキルカラムの存在チェック
+            existing_skills = [s for s in category_skills if s in target_process_data.columns]
+            if not existing_skills:
+                continue
+            
+            target_mean = target_process_data[existing_skills].mean().mean()
+            target_std = target_process_data[existing_skills].std().mean()
             
             # ベンチマークのデータ
             benchmark_process_data = df_benchmark[df_benchmark['工程'] == process]
-            benchmark_mean = benchmark_process_data[category_skills].mean().mean()
-            benchmark_std = benchmark_process_data[category_skills].std().mean()
             
-            gap = benchmark_mean - target_mean if not pd.isna(target_mean) else 0
+            # ベンチマークデータ存在チェック
+            if len(benchmark_process_data) == 0:
+                benchmark_mean = np.nan
+                benchmark_std = np.nan
+            else:
+                benchmark_mean = benchmark_process_data[existing_skills].mean().mean()
+                benchmark_std = benchmark_process_data[existing_skills].std().mean()
+            
+            gap = benchmark_mean - target_mean if not pd.isna(target_mean) and not pd.isna(benchmark_mean) else 0
             
             heatmap_data.append({
                 '工程': process,
@@ -94,33 +111,37 @@ def show_root_cause_analysis(df_skill, target_location, all_skills, skill_to_cat
     
     df_heatmap = pd.DataFrame(heatmap_data)
     
-    # ヒートマップ表示（クリック可能）
-    st.markdown("### 🔥 工程×スキルカテゴリ ギャップヒートマップ")
-    st.markdown("**クリック可能**: 各セルをクリックすると、下部に詳細な分布が表示されます")
-    
-    # ピボットテーブル作成
-    pivot_table = df_heatmap.pivot(index='工程', columns='スキルカテゴリ', values='ギャップ')
-    
-    # ヒートマップ描画
-    fig_heatmap = go.Figure(data=go.Heatmap(
-        z=pivot_table.values,
-        x=pivot_table.columns,
-        y=pivot_table.index,
-        colorscale='RdYlGn_r',  # 赤（大きいギャップ）→黄→緑（小さいギャップ）
-        text=pivot_table.values.round(2),
-        texttemplate='%{text}',
-        textfont={"size": 12},
-        colorbar=dict(title="ギャップ")
-    ))
-    
-    fig_heatmap.update_layout(
-        title='スキルギャップ（ベンチマーク - 対象拠点）',
-        xaxis_title='スキルカテゴリ',
-        yaxis_title='工程',
-        height=400
-    )
-    
-    st.plotly_chart(fig_heatmap, use_container_width=True)
+    # ヒートマップデータが空の場合
+    if df_heatmap.empty:
+        st.warning("⚠️ ヒートマップ用のデータが不足しています。別の拠点を選択してください。", icon="⚠️")
+    else:
+        # ヒートマップ表示（クリック可能）
+        st.markdown("### 🔥 工程×スキルカテゴリ ギャップヒートマップ")
+        st.markdown("**クリック可能**: 各セルをクリックすると、下部に詳細な分布が表示されます")
+        
+        # ピボットテーブル作成
+        pivot_table = df_heatmap.pivot(index='工程', columns='スキルカテゴリ', values='ギャップ')
+        
+        # ヒートマップ描画
+        fig_heatmap = go.Figure(data=go.Heatmap(
+            z=pivot_table.values,
+            x=pivot_table.columns,
+            y=pivot_table.index,
+            colorscale='RdYlGn_r',  # 赤（大きいギャップ）→黄→緑（小さいギャップ）
+            text=pivot_table.values.round(2),
+            texttemplate='%{text}',
+            textfont={"size": 12},
+            colorbar=dict(title="ギャップ")
+        ))
+        
+        fig_heatmap.update_layout(
+            title='スキルギャップ（ベンチマーク - 対象拠点）',
+            xaxis_title='スキルカテゴリ',
+            yaxis_title='工程',
+            height=400
+        )
+        
+        st.plotly_chart(fig_heatmap, use_container_width=True)
     
     # インタラクティブな詳細表示
     st.markdown("---")
@@ -366,6 +387,10 @@ def show_root_cause_analysis(df_skill, target_location, all_skills, skill_to_cat
     for process in processes:
         for shift in ['日勤', '夜勤']:
             process_shift_data = df_target[(df_target['工程'] == process) & (df_target['シフト'] == shift)]
+            
+            # データ存在チェック
+            if len(process_shift_data) == 0:
+                continue
             
             if len(process_shift_data) > 0:
                 for category in skill_categories:
