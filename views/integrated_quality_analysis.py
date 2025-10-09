@@ -81,240 +81,421 @@ def show_integrated_quality_analysis(df_daily_prod, df_skill, target_location, s
     st.markdown("---")
     
     # =============================================================================
-    # 1. 複合時系列グラフ（スキル・品質・シフトを1つのグラフで）
+    # 1. 複合時系列グラフ（スキルと品質を2つのグラフに分割、シフト稼働状況を背景色で表示）
     # =============================================================================
     st.markdown("""
     <div class="section-header">
         <h2 class="section-title">📊 分析① 複合時系列グラフ</h2>
-        <p class="section-subtitle">スキルと品質の時系列推移を1つのグラフで可視化（シフト別色分け）</p>
+        <p class="section-subtitle">スキルと品質の時系列推移（背景色でシフト稼働状況を表示）</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # シフト別にデータを分ける
-    df_day = df_process[df_process['シフト'] == '日勤'].copy()
-    df_night = df_process[df_process['シフト'] == '夜勤'].copy()
-    
     skill_col = f'{selected_category}_平均'
     
-    fig1 = make_subplots(specs=[[{"secondary_y": True}]])
+    # チーム別にデータを準備（シフト稼働状況を把握するため）
+    teams = sorted(df_process['チーム'].unique())
     
-    # 日勤 - スキルスコア
-    if not df_day.empty and skill_col in df_day.columns:
+    # 2つのサブプロット作成（上:スキル、下:品質）
+    fig1 = make_subplots(
+        rows=2, cols=1,
+        subplot_titles=[
+            f'{selected_category}スキル推移（チーム別）',
+            '品質不良率推移（チーム別）'
+        ],
+        vertical_spacing=0.12,
+        row_heights=[0.5, 0.5]
+    )
+    
+    # カラーマップ
+    team_colors = {
+        'Aチーム': '#1f77b4',
+        'Bチーム': '#ff7f0e', 
+        'Cチーム': '#2ca02c'
+    }
+    
+    shift_backgrounds = {
+        '日勤': 'rgba(255, 235, 153, 0.3)',  # 薄い黄色
+        '夜勤': 'rgba(100, 100, 150, 0.2)'   # 薄い青
+    }
+    
+    # 各チームのデータをプロット
+    for team in teams:
+        df_team = df_process[df_process['チーム'] == team].sort_values('日付')
+        
+        if df_team.empty:
+            continue
+        
+        # スキルスコア（上段）
+        if skill_col in df_team.columns:
+            fig1.add_trace(
+                go.Scatter(
+                    x=df_team['日付'],
+                    y=df_team[skill_col],
+                    name=f'{team}',
+                    line=dict(color=team_colors.get(team, '#888888'), width=2.5),
+                    mode='lines+markers',
+                    marker=dict(size=5),
+                    legendgroup=team,
+                    hovertemplate=f'<b>{team}</b><br>日付: %{{x}}<br>シフト: %{{text}}<br>スキル: %{{y:.2f}}<extra></extra>',
+                    text=df_team['シフト']
+                ),
+                row=1, col=1
+            )
+        
+        # 品質不良率（下段）
         fig1.add_trace(
             go.Scatter(
-                x=df_day['日付'],
-                y=df_day[skill_col],
-                name='日勤 スキル',
-                line=dict(color='#2E86DE', width=3),
+                x=df_team['日付'],
+                y=df_team['品質不良率 (%)'],
+                name=f'{team}',
+                line=dict(color=team_colors.get(team, '#888888'), width=2.5),
                 mode='lines+markers',
-                marker=dict(size=6),
-                hovertemplate='<b>日勤 スキル</b><br>日付: %{x}<br>スコア: %{y:.2f}<extra></extra>'
+                marker=dict(size=5),
+                legendgroup=team,
+                showlegend=False,
+                hovertemplate=f'<b>{team}</b><br>日付: %{{x}}<br>シフト: %{{text}}<br>不良率: %{{y:.2f}}%<extra></extra>',
+                text=df_team['シフト']
             ),
-            secondary_y=False
+            row=2, col=1
         )
     
-    # 夜勤 - スキルスコア
-    if not df_night.empty and skill_col in df_night.columns:
-        fig1.add_trace(
-            go.Scatter(
-                x=df_night['日付'],
-                y=df_night[skill_col],
-                name='夜勤 スキル',
-                line=dict(color='#5F27CD', width=3, dash='dot'),
-                mode='lines+markers',
-                marker=dict(size=6),
-                hovertemplate='<b>夜勤 スキル</b><br>日付: %{x}<br>スコア: %{y:.2f}<extra></extra>'
-            ),
-            secondary_y=False
-        )
+    # シフト稼働状況を背景色で表示
+    # 各日付のシフト状況を取得
+    date_shift_map = {}
+    for date in df_process['日付'].unique():
+        shifts_on_date = df_process[df_process['日付'] == date]['シフト'].unique()
+        if len(shifts_on_date) == 1:
+            date_shift_map[date] = shifts_on_date[0]
+        else:
+            date_shift_map[date] = '混合'
     
-    # 日勤 - 品質不良率
-    if not df_day.empty:
-        fig1.add_trace(
-            go.Scatter(
-                x=df_day['日付'],
-                y=df_day['品質不良率 (%)'],
-                name='日勤 不良率',
-                line=dict(color='#FF6348', width=2),
-                mode='lines+markers',
-                marker=dict(size=5, symbol='square'),
-                hovertemplate='<b>日勤 不良率</b><br>日付: %{x}<br>不良率: %{y:.2f}%<extra></extra>'
-            ),
-            secondary_y=True
-        )
+    # 連続した同じシフトの期間を背景色で塗る
+    current_shift = None
+    start_date = None
     
-    # 夜勤 - 品質不良率
-    if not df_night.empty:
-        fig1.add_trace(
-            go.Scatter(
-                x=df_night['日付'],
-                y=df_night['品質不良率 (%)'],
-                name='夜勤 不良率',
-                line=dict(color='#EE5A6F', width=2, dash='dot'),
-                mode='lines+markers',
-                marker=dict(size=5, symbol='square'),
-                hovertemplate='<b>夜勤 不良率</b><br>日付: %{x}<br>不良率: %{y:.2f}%<extra></extra>'
-            ),
-            secondary_y=True
-        )
+    sorted_dates = sorted(date_shift_map.keys())
     
-    fig1.update_xaxes(title_text="日付")
-    fig1.update_yaxes(title_text=f"{selected_category}スキル スコア", secondary_y=False, range=[1, 5])
-    fig1.update_yaxes(title_text="品質不良率 (%)", secondary_y=True)
+    for i, date in enumerate(sorted_dates):
+        shift = date_shift_map[date]
+        
+        if shift != current_shift:
+            # 前の期間を描画
+            if current_shift and current_shift != '混合' and start_date:
+                for row in [1, 2]:
+                    fig1.add_vrect(
+                        x0=start_date,
+                        x1=date,
+                        fillcolor=shift_backgrounds.get(current_shift, 'rgba(200,200,200,0.1)'),
+                        layer="below",
+                        line_width=0,
+                        row=row, col=1
+                    )
+            
+            # 新しい期間開始
+            current_shift = shift
+            start_date = date
+    
+    # 最後の期間を描画
+    if current_shift and current_shift != '混合' and start_date:
+        end_date = sorted_dates[-1] + pd.Timedelta(days=1)
+        for row in [1, 2]:
+            fig1.add_vrect(
+                x0=start_date,
+                x1=end_date,
+                fillcolor=shift_backgrounds.get(current_shift, 'rgba(200,200,200,0.1)'),
+                layer="below",
+                line_width=0,
+                row=row, col=1
+            )
+    
+    # 軸設定
+    fig1.update_xaxes(title_text="日付", row=2, col=1)
+    fig1.update_yaxes(title_text="スキルスコア", range=[1, 5], row=1, col=1)
+    fig1.update_yaxes(title_text="品質不良率 (%)", row=2, col=1)
     
     fig1.update_layout(
-        title=f"{selected_process} - スキルと品質の関係（シフト別）",
+        title=f"{selected_process} - スキル・品質推移（背景色: 黄=日勤、青=夜勤）",
         hovermode='x unified',
-        height=500,
+        height=700,
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
+            y=1.05,
+            xanchor="center",
+            x=0.5
         )
     )
     
     st.plotly_chart(fig1, use_container_width=True)
     
     # インサイト
-    if not df_day.empty and not df_night.empty:
-        day_defect_avg = df_day['品質不良率 (%)'].mean()
-        night_defect_avg = df_night['品質不良率 (%)'].mean()
-        day_skill_avg = df_day[skill_col].mean() if skill_col in df_day.columns else 0
-        night_skill_avg = df_night[skill_col].mean() if skill_col in df_night.columns else 0
-        
-        col_insight1, col_insight2 = st.columns(2)
-        
-        with col_insight1:
-            st.info(
-                f"**📈 日勤の特徴**\n\n"
-                f"• 平均スキル: {day_skill_avg:.2f}\n\n"
-                f"• 平均不良率: {day_defect_avg:.2f}%\n\n"
-                f"• データ数: {len(df_day)}件",
-                icon="☀️"
-            )
-        
-        with col_insight2:
-            st.info(
-                f"**🌙 夜勤の特徴**\n\n"
-                f"• 平均スキル: {night_skill_avg:.2f}\n\n"
-                f"• 平均不良率: {night_defect_avg:.2f}%\n\n"
-                f"• データ数: {len(df_night)}件",
-                icon="🌙"
-            )
+    col_insight1, col_insight2, col_insight3 = st.columns(3)
+    
+    with col_insight1:
+        if skill_col in df_process.columns:
+            avg_skill = df_process[skill_col].mean()
+            st.metric("平均スキル", f"{avg_skill:.2f}")
+    
+    with col_insight2:
+        avg_defect = df_process['品質不良率 (%)'].mean()
+        st.metric("平均不良率", f"{avg_defect:.2f}%")
+    
+    with col_insight3:
+        # シフト別の不良率差
+        df_day = df_process[df_process['シフト'] == '日勤']
+        df_night = df_process[df_process['シフト'] == '夜勤']
+        if not df_day.empty and not df_night.empty:
+            day_defect = df_day['品質不良率 (%)'].mean()
+            night_defect = df_night['品質不良率 (%)'].mean()
+            diff = night_defect - day_defect
+            st.metric("夜勤 - 日勤 不良率差", f"{diff:+.2f}%", delta_color="inverse")
     
     st.markdown("---")
     
     # =============================================================================
-    # 2. ヒートマップ + 時系列
+    # 2. 相関分析（ヒストグラム比較：日勤 vs 夜勤）
     # =============================================================================
     st.markdown("""
     <div class="section-header">
-        <h2 class="section-title">🔥 分析② ヒートマップ + 時系列</h2>
-        <p class="section-subtitle">チーム×時間のスキルレベルと品質不良率の関係を2次元で可視化</p>
+        <h2 class="section-title">📊 分析② ヒストグラム比較（日勤 vs 夜勤）</h2>
+        <p class="section-subtitle">スキルと品質の分布をシフト別に比較</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # チーム×日付のピボットテーブル作成
-    teams = sorted(df_process['チーム'].unique())
-    
-    # スキルのヒートマップ
     if skill_col in df_process.columns:
-        pivot_skill = df_process.pivot_table(
-            values=skill_col,
-            index='チーム',
-            columns='日付',
-            aggfunc='mean'
+        # 2x2のサブプロット（左上:日勤スキル、右上:夜勤スキル、左下:日勤品質、右下:夜勤品質）
+        fig2 = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=[
+                '☀️ 日勤 - スキル分布',
+                '🌙 夜勤 - スキル分布',
+                '☀️ 日勤 - 品質不良率分布',
+                '🌙 夜勤 - 品質不良率分布'
+            ],
+            vertical_spacing=0.15,
+            horizontal_spacing=0.12
         )
         
-        # 品質不良率のバブル用データ
-        pivot_defect = df_process.pivot_table(
-            values='品質不良率 (%)',
-            index='チーム',
-            columns='日付',
-            aggfunc='mean'
-        )
+        df_day = df_process[df_process['シフト'] == '日勤']
+        df_night = df_process[df_process['シフト'] == '夜勤']
         
-        fig2 = go.Figure()
+        # 日勤スキル
+        if not df_day.empty:
+            fig2.add_trace(
+                go.Histogram(
+                    x=df_day[skill_col],
+                    name='日勤 スキル',
+                    marker_color='#2E86DE',
+                    opacity=0.7,
+                    nbinsx=15,
+                    showlegend=False
+                ),
+                row=1, col=1
+            )
+            
+            # 平均線
+            mean_val = df_day[skill_col].mean()
+            fig2.add_vline(
+                x=mean_val,
+                line=dict(color='red', dash='dash', width=2),
+                row=1, col=1,
+                annotation_text=f"平均: {mean_val:.2f}",
+                annotation_position="top"
+            )
         
-        # ヒートマップ（スキル）
-        fig2.add_trace(go.Heatmap(
-            z=pivot_skill.values,
-            x=[d.strftime('%m/%d') for d in pivot_skill.columns],
-            y=pivot_skill.index,
-            colorscale='Blues',
-            hovertemplate='チーム: %{y}<br>日付: %{x}<br>スキル: %{z:.2f}<extra></extra>',
-            colorbar=dict(title="スキル<br>スコア", len=0.4, y=0.75)
-        ))
+        # 夜勤スキル
+        if not df_night.empty:
+            fig2.add_trace(
+                go.Histogram(
+                    x=df_night[skill_col],
+                    name='夜勤 スキル',
+                    marker_color='#5F27CD',
+                    opacity=0.7,
+                    nbinsx=15,
+                    showlegend=False
+                ),
+                row=1, col=2
+            )
+            
+            # 平均線
+            mean_val = df_night[skill_col].mean()
+            fig2.add_vline(
+                x=mean_val,
+                line=dict(color='red', dash='dash', width=2),
+                row=1, col=2,
+                annotation_text=f"平均: {mean_val:.2f}",
+                annotation_position="top"
+            )
         
-        # 品質不良率のバブル（サイズで表現）
-        for i, team in enumerate(pivot_defect.index):
-            for j, date in enumerate(pivot_defect.columns):
-                defect_val = pivot_defect.iloc[i, j]
-                if not pd.isna(defect_val):
-                    fig2.add_trace(go.Scatter(
-                        x=[date.strftime('%m/%d')],
-                        y=[team],
-                        mode='markers',
-                        marker=dict(
-                            size=defect_val * 5,  # 不良率が高いほど大きい
-                            color='red',
-                            opacity=0.6,
-                            line=dict(color='darkred', width=1)
-                        ),
-                        hovertemplate=f'チーム: {team}<br>日付: {date.strftime("%Y-%m-%d")}<br>不良率: {defect_val:.2f}%<extra></extra>',
-                        showlegend=False
-                    ))
+        # 日勤品質
+        if not df_day.empty:
+            fig2.add_trace(
+                go.Histogram(
+                    x=df_day['品質不良率 (%)'],
+                    name='日勤 不良率',
+                    marker_color='#FF6348',
+                    opacity=0.7,
+                    nbinsx=15,
+                    showlegend=False
+                ),
+                row=2, col=1
+            )
+            
+            # 平均線
+            mean_val = df_day['品質不良率 (%)'].mean()
+            fig2.add_vline(
+                x=mean_val,
+                line=dict(color='red', dash='dash', width=2),
+                row=2, col=1,
+                annotation_text=f"平均: {mean_val:.2f}%",
+                annotation_position="top"
+            )
         
-        # 凡例用ダミートレース
-        fig2.add_trace(go.Scatter(
-            x=[None], y=[None],
-            mode='markers',
-            marker=dict(size=10, color='red', opacity=0.6),
-            name='不良率 (大きさ=不良率)',
-            showlegend=True
-        ))
+        # 夜勤品質
+        if not df_night.empty:
+            fig2.add_trace(
+                go.Histogram(
+                    x=df_night['品質不良率 (%)'],
+                    name='夜勤 不良率',
+                    marker_color='#EE5A6F',
+                    opacity=0.7,
+                    nbinsx=15,
+                    showlegend=False
+                ),
+                row=2, col=2
+            )
+            
+            # 平均線
+            mean_val = df_night['品質不良率 (%)'].mean()
+            fig2.add_vline(
+                x=mean_val,
+                line=dict(color='red', dash='dash', width=2),
+                row=2, col=2,
+                annotation_text=f"平均: {mean_val:.2f}%",
+                annotation_position="top"
+            )
+        
+        # 軸設定
+        fig2.update_xaxes(title_text="スキルスコア", row=1, col=1)
+        fig2.update_xaxes(title_text="スキルスコア", row=1, col=2)
+        fig2.update_xaxes(title_text="品質不良率 (%)", row=2, col=1)
+        fig2.update_xaxes(title_text="品質不良率 (%)", row=2, col=2)
+        
+        fig2.update_yaxes(title_text="頻度", row=1, col=1)
+        fig2.update_yaxes(title_text="頻度", row=1, col=2)
+        fig2.update_yaxes(title_text="頻度", row=2, col=1)
+        fig2.update_yaxes(title_text="頻度", row=2, col=2)
         
         fig2.update_layout(
-            title=f"{selected_process} - チーム×日付 スキルマップ（バブル=不良率）",
-            xaxis_title="日付",
-            yaxis_title="チーム",
-            height=400
+            title=f"{selected_process} - シフト別 スキル・品質分布（赤線=平均値）",
+            height=700
         )
         
         st.plotly_chart(fig2, use_container_width=True)
         
-        st.success(
-            "**💡 読み方**\n\n"
-            "• **青色の濃さ**: スキルレベル（濃いほど高い）\n\n"
-            "• **赤いバブル**: 品質不良率（大きいほど不良率が高い）\n\n"
-            "• **パターン**: どのチーム・時期に問題があるかが一目瞭然",
-            icon="📖"
-        )
+        # 統計比較テーブル
+        col_stat1, col_stat2 = st.columns(2)
+        
+        with col_stat1:
+            st.markdown("#### 📊 スキル統計比較")
+            
+            if not df_day.empty and not df_night.empty:
+                stat_data = {
+                    '指標': ['平均', '中央値', '標準偏差', '最小値', '最大値'],
+                    '日勤': [
+                        f"{df_day[skill_col].mean():.2f}",
+                        f"{df_day[skill_col].median():.2f}",
+                        f"{df_day[skill_col].std():.2f}",
+                        f"{df_day[skill_col].min():.2f}",
+                        f"{df_day[skill_col].max():.2f}"
+                    ],
+                    '夜勤': [
+                        f"{df_night[skill_col].mean():.2f}",
+                        f"{df_night[skill_col].median():.2f}",
+                        f"{df_night[skill_col].std():.2f}",
+                        f"{df_night[skill_col].min():.2f}",
+                        f"{df_night[skill_col].max():.2f}"
+                    ],
+                    '差分': [
+                        f"{df_night[skill_col].mean() - df_day[skill_col].mean():+.2f}",
+                        f"{df_night[skill_col].median() - df_day[skill_col].median():+.2f}",
+                        f"{df_night[skill_col].std() - df_day[skill_col].std():+.2f}",
+                        "-",
+                        "-"
+                    ]
+                }
+                
+                st.dataframe(pd.DataFrame(stat_data), use_container_width=True, hide_index=True)
+        
+        with col_stat2:
+            st.markdown("#### 📊 品質統計比較")
+            
+            if not df_day.empty and not df_night.empty:
+                stat_data = {
+                    '指標': ['平均', '中央値', '標準偏差', '最小値', '最大値'],
+                    '日勤': [
+                        f"{df_day['品質不良率 (%)'].mean():.2f}%",
+                        f"{df_day['品質不良率 (%)'].median():.2f}%",
+                        f"{df_day['品質不良率 (%)'].std():.2f}%",
+                        f"{df_day['品質不良率 (%)'].min():.2f}%",
+                        f"{df_day['品質不良率 (%)'].max():.2f}%"
+                    ],
+                    '夜勤': [
+                        f"{df_night['品質不良率 (%)'].mean():.2f}%",
+                        f"{df_night['品質不良率 (%)'].median():.2f}%",
+                        f"{df_night['品質不良率 (%)'].std():.2f}%",
+                        f"{df_night['品質不良率 (%)'].min():.2f}%",
+                        f"{df_night['品質不良率 (%)'].max():.2f}%"
+                    ],
+                    '差分': [
+                        f"{df_night['品質不良率 (%)'].mean() - df_day['品質不良率 (%)'].mean():+.2f}%",
+                        f"{df_night['品質不良率 (%)'].median() - df_day['品質不良率 (%)'].median():+.2f}%",
+                        f"{df_night['品質不良率 (%)'].std() - df_day['品質不良率 (%)'].std():+.2f}%",
+                        "-",
+                        "-"
+                    ]
+                }
+                
+                st.dataframe(pd.DataFrame(stat_data), use_container_width=True, hide_index=True)
+        
+        # インサイト
+        if not df_day.empty and not df_night.empty:
+            skill_diff = df_night[skill_col].mean() - df_day[skill_col].mean()
+            defect_diff = df_night['品質不良率 (%)'].mean() - df_day['品質不良率 (%)'].mean()
+            
+            if abs(skill_diff) > 0.2 or abs(defect_diff) > 0.5:
+                st.warning(
+                    f"⚠️ **シフト間で有意な差が検出されました**\n\n"
+                    f"• スキル差: {skill_diff:+.2f}\n\n"
+                    f"• 品質差: {defect_diff:+.2f}%\n\n"
+                    f"→ {'夜勤' if defect_diff > 0 else '日勤'}シフトの改善施策を優先してください",
+                    icon="🔍"
+                )
+            else:
+                st.success(
+                    f"✅ **シフト間のパフォーマンスは均等です**\n\n"
+                    f"• スキル差: {skill_diff:+.2f} (小さい)\n\n"
+                    f"• 品質差: {defect_diff:+.2f}% (小さい)\n\n"
+                    f"→ 現在のシフト運用を継続してください",
+                    icon="👍"
+                )
     
     st.markdown("---")
     
     # =============================================================================
-    # 3. 相関散布図（時系列アニメーション）
+    # 3. 散布図（スキル vs 品質の相関）
     # =============================================================================
     st.markdown("""
     <div class="section-header">
-        <h2 class="section-title">🎬 分析③ 相関散布図（時系列アニメーション）</h2>
-        <p class="section-subtitle">スキルと品質の関係が時間とともにどう変化するかをアニメーションで表現</p>
+        <h2 class="section-title">🎯 分析③ 相関散布図</h2>
+        <p class="section-subtitle">スキルと品質の関係を可視化</p>
     </div>
     """, unsafe_allow_html=True)
     
     if skill_col in df_process.columns:
-        # 週ごとにデータを集計
-        df_process['週'] = df_process['日付'].dt.to_period('W').dt.start_time
-        
         fig3 = go.Figure()
         
-        # 各週のフレームを作成
-        weeks = sorted(df_process['週'].unique())
-        
-        # すべてのデータポイント（静的）
+        # シフト別のプロット
         for shift in ['日勤', '夜勤']:
             df_shift = df_process[df_process['シフト'] == shift]
             
@@ -323,7 +504,7 @@ def show_integrated_quality_analysis(df_daily_prod, df_skill, target_location, s
                 y=df_shift['品質不良率 (%)'],
                 mode='markers',
                 marker=dict(
-                    size=df_shift['日次生産量 (t)'] / 100,
+                    size=8,
                     color='#2E86DE' if shift == '日勤' else '#5F27CD',
                     opacity=0.6,
                     line=dict(width=1, color='white')
@@ -359,172 +540,221 @@ def show_integrated_quality_analysis(df_daily_prod, df_skill, target_location, s
                 ))
                 
                 # 相関係数を表示
-                st.info(
-                    f"**📊 相関分析結果**\n\n"
-                    f"• 相関係数 (R): {r_value:.3f}\n\n"
-                    f"• 決定係数 (R²): {r_value**2:.3f}\n\n"
-                    f"• 傾き: {slope:.4f}\n\n"
-                    f"• p値: {p_value:.4e}",
-                    icon="📈"
-                )
+                col_corr1, col_corr2, col_corr3 = st.columns(3)
+                
+                with col_corr1:
+                    st.metric("相関係数 (R)", f"{r_value:.3f}")
+                
+                with col_corr2:
+                    st.metric("決定係数 (R²)", f"{r_value**2:.3f}")
+                
+                with col_corr3:
+                    corr_strength = "強" if abs(r_value) > 0.7 else ("中" if abs(r_value) > 0.4 else "弱")
+                    st.metric("相関強度", corr_strength)
         except ImportError:
             st.warning("scipyがインストールされていないため、トレンドラインを表示できません。", icon="⚠️")
         
         fig3.update_layout(
-            title=f"{selected_process} - スキル vs 品質不良率（バブルサイズ=生産量）",
+            title=f"{selected_process} - スキル vs 品質不良率",
             xaxis_title=f"{selected_category}スキル スコア",
             yaxis_title="品質不良率 (%)",
-            height=600,
-            legend=dict(
-                orientation="v",
-                yanchor="top",
-                y=0.99,
-                xanchor="right",
-                x=0.99
-            )
+            height=500
         )
         
         st.plotly_chart(fig3, use_container_width=True)
-        
-        st.success(
-            "**💡 読み方**\n\n"
-            "• **横軸**: スキルスコア（右ほど高スキル）\n\n"
-            "• **縦軸**: 品質不良率（下ほど高品質）\n\n"
-            "• **バブルサイズ**: 生産量（大きいほど多い）\n\n"
-            "• **色**: シフト（青=日勤、紫=夜勤）\n\n"
-            "• **理想**: 右下（高スキル・低不良率）",
-            icon="🎯"
-        )
     
     st.markdown("---")
     
     # =============================================================================
-    # 4. ファセットグラフ（Small Multiples）
+    # 4. ファセットグラフ（Small Multiples）- チームフィルター付き
     # =============================================================================
     st.markdown("""
     <div class="section-header">
         <h2 class="section-title">📊 分析④ ファセットグラフ（Small Multiples）</h2>
-        <p class="section-subtitle">シフト間の差を同じ形式のグラフで並べて比較</p>
+        <p class="section-subtitle">シフト間の差を同じ形式のグラフで並べて比較（チームフィルター機能付き）</p>
     </div>
     """, unsafe_allow_html=True)
     
-    if skill_col in df_process.columns:
-        # 2行1列のサブプロット（上段=日勤、下段=夜勤）
-        fig4 = make_subplots(
-            rows=2, cols=1,
-            subplot_titles=['☀️ 日勤シフト - スキル×品質推移', '🌙 夜勤シフト - スキル×品質推移'],
-            specs=[[{"secondary_y": True}], [{"secondary_y": True}]],
-            vertical_spacing=0.15
+    # チーム選択フィルター
+    teams_available = sorted(df_process['チーム'].unique())
+    
+    col_filter1, col_filter2 = st.columns([2, 1])
+    
+    with col_filter1:
+        selected_teams = st.multiselect(
+            '表示するチームを選択',
+            options=teams_available,
+            default=teams_available,
+            key='facet_team_filter'
         )
+    
+    with col_filter2:
+        st.markdown("##### フィルターオプション")
+        show_avg_lines = st.checkbox('平均値ラインを表示', value=True, key='show_avg_lines')
+    
+    if not selected_teams:
+        st.warning("チームを1つ以上選択してください", icon="⚠️")
+    else:
+        # 選択されたチームのデータのみフィルタリング
+        df_filtered_teams = df_process[df_process['チーム'].isin(selected_teams)].copy()
         
-        shifts = [('日勤', 1, '#2E86DE', '#FF6348'), ('夜勤', 2, '#5F27CD', '#EE5A6F')]
-        
-        for shift_name, row, skill_color, defect_color in shifts:
-            df_shift = df_process[df_process['シフト'] == shift_name]
-            
-            if not df_shift.empty:
-                # スキルスコア
-                fig4.add_trace(
-                    go.Scatter(
-                        x=df_shift['日付'],
-                        y=df_shift[skill_col],
-                        name=f'{shift_name} スキル',
-                        line=dict(color=skill_color, width=3),
-                        mode='lines+markers',
-                        marker=dict(size=8),
-                        legendgroup=shift_name,
-                        showlegend=True,
-                        hovertemplate=f'<b>{shift_name} スキル</b><br>日付: %{{x}}<br>スコア: %{{y:.2f}}<extra></extra>'
-                    ),
-                    row=row, col=1,
-                    secondary_y=False
-                )
-                
-                # 品質不良率
-                fig4.add_trace(
-                    go.Scatter(
-                        x=df_shift['日付'],
-                        y=df_shift['品質不良率 (%)'],
-                        name=f'{shift_name} 不良率',
-                        line=dict(color=defect_color, width=2, dash='dash'),
-                        mode='lines+markers',
-                        marker=dict(size=6),
-                        legendgroup=shift_name,
-                        showlegend=True,
-                        hovertemplate=f'<b>{shift_name} 不良率</b><br>日付: %{{x}}<br>不良率: %{{y:.2f}}%<extra></extra>'
-                    ),
-                    row=row, col=1,
-                    secondary_y=True
-                )
-                
-                # 平均線を追加
-                skill_mean = df_shift[skill_col].mean()
-                defect_mean = df_shift['品質不良率 (%)'].mean()
-                
-                fig4.add_hline(
-                    y=skill_mean,
-                    line=dict(color=skill_color, dash='dot', width=2),
-                    row=row, col=1,
-                    secondary_y=False,
-                    annotation_text=f"平均: {skill_mean:.2f}",
-                    annotation_position="right"
-                )
-                
-                fig4.add_hline(
-                    y=defect_mean,
-                    line=dict(color=defect_color, dash='dot', width=2),
-                    row=row, col=1,
-                    secondary_y=True,
-                    annotation_text=f"平均: {defect_mean:.2f}%",
-                    annotation_position="left"
-                )
-        
-        # 軸設定
-        fig4.update_xaxes(title_text="日付", row=2, col=1)
-        fig4.update_yaxes(title_text=f"{selected_category}スキル", range=[1, 5], row=1, col=1, secondary_y=False)
-        fig4.update_yaxes(title_text="不良率 (%)", row=1, col=1, secondary_y=True)
-        fig4.update_yaxes(title_text=f"{selected_category}スキル", range=[1, 5], row=2, col=1, secondary_y=False)
-        fig4.update_yaxes(title_text="不良率 (%)", row=2, col=1, secondary_y=True)
-        
-        fig4.update_layout(
-            title=f"{selected_process} - シフト別比較（点線=平均値）",
-            hovermode='x unified',
-            height=800,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=-0.08,
-                xanchor="center",
-                x=0.5
+        if skill_col in df_filtered_teams.columns:
+            # 2行1列のサブプロット（上段=日勤、下段=夜勤）
+            fig4 = make_subplots(
+                rows=2, cols=1,
+                subplot_titles=['☀️ 日勤シフト - スキル×品質推移', '🌙 夜勤シフト - スキル×品質推移'],
+                specs=[[{"secondary_y": True}], [{"secondary_y": True}]],
+                vertical_spacing=0.15
             )
-        )
-        
-        st.plotly_chart(fig4, use_container_width=True)
-        
-        # シフト比較サマリー
-        col_summary1, col_summary2 = st.columns(2)
-        
-        with col_summary1:
-            df_day_shift = df_process[df_process['シフト'] == '日勤']
-            if not df_day_shift.empty and skill_col in df_day_shift.columns:
-                st.info(
-                    f"**☀️ 日勤シフト 統計**\n\n"
-                    f"• 平均スキル: {df_day_shift[skill_col].mean():.2f} (σ={df_day_shift[skill_col].std():.2f})\n\n"
-                    f"• 平均不良率: {df_day_shift['品質不良率 (%)'].mean():.2f}% (σ={df_day_shift['品質不良率 (%)'].std():.2f})\n\n"
-                    f"• データ数: {len(df_day_shift)}件",
-                    icon="☀️"
+            
+            team_colors = {
+                'Aチーム': '#1f77b4',
+                'Bチーム': '#ff7f0e',
+                'Cチーム': '#2ca02c'
+            }
+            
+            shifts = [('日勤', 1), ('夜勤', 2)]
+            
+            for shift_name, row in shifts:
+                df_shift = df_filtered_teams[df_filtered_teams['シフト'] == shift_name]
+                
+                if not df_shift.empty:
+                    # チーム別にプロット
+                    for team in selected_teams:
+                        df_team_shift = df_shift[df_shift['チーム'] == team]
+                        
+                        if not df_team_shift.empty:
+                            # スキルスコア
+                            fig4.add_trace(
+                                go.Scatter(
+                                    x=df_team_shift['日付'],
+                                    y=df_team_shift[skill_col],
+                                    name=f'{team}',
+                                    line=dict(color=team_colors.get(team, '#888888'), width=2.5),
+                                    mode='lines+markers',
+                                    marker=dict(size=6),
+                                    legendgroup=f'{shift_name}_{team}',
+                                    showlegend=(row == 1),
+                                    hovertemplate=f'<b>{shift_name} - {team}</b><br>日付: %{{x}}<br>スキル: %{{y:.2f}}<extra></extra>'
+                                ),
+                                row=row, col=1,
+                                secondary_y=False
+                            )
+                            
+                            # 品質不良率
+                            fig4.add_trace(
+                                go.Scatter(
+                                    x=df_team_shift['日付'],
+                                    y=df_team_shift['品質不良率 (%)'],
+                                    name=f'{team} (不良率)',
+                                    line=dict(color=team_colors.get(team, '#888888'), width=2, dash='dash'),
+                                    mode='lines+markers',
+                                    marker=dict(size=5),
+                                    legendgroup=f'{shift_name}_{team}',
+                                    showlegend=False,
+                                    hovertemplate=f'<b>{shift_name} - {team}</b><br>日付: %{{x}}<br>不良率: %{{y:.2f}}%<extra></extra>'
+                                ),
+                                row=row, col=1,
+                                secondary_y=True
+                            )
+                    
+                    # 平均線を追加（オプション）
+                    if show_avg_lines:
+                        skill_mean = df_shift[skill_col].mean()
+                        defect_mean = df_shift['品質不良率 (%)'].mean()
+                        
+                        fig4.add_hline(
+                            y=skill_mean,
+                            line=dict(color='blue', dash='dot', width=2),
+                            row=row, col=1,
+                            secondary_y=False,
+                            annotation_text=f"平均スキル: {skill_mean:.2f}",
+                            annotation_position="right"
+                        )
+                        
+                        fig4.add_hline(
+                            y=defect_mean,
+                            line=dict(color='red', dash='dot', width=2),
+                            row=row, col=1,
+                            secondary_y=True,
+                            annotation_text=f"平均不良率: {defect_mean:.2f}%",
+                            annotation_position="left"
+                        )
+            
+            # 軸設定
+            fig4.update_xaxes(title_text="日付", row=2, col=1)
+            fig4.update_yaxes(title_text=f"{selected_category}スキル", range=[1, 5], row=1, col=1, secondary_y=False)
+            fig4.update_yaxes(title_text="不良率 (%)", row=1, col=1, secondary_y=True)
+            fig4.update_yaxes(title_text=f"{selected_category}スキル", range=[1, 5], row=2, col=1, secondary_y=False)
+            fig4.update_yaxes(title_text="不良率 (%)", row=2, col=1, secondary_y=True)
+            
+            fig4.update_layout(
+                title=f"{selected_process} - シフト別比較（実線=スキル、破線=不良率、点線=平均値）",
+                hovermode='x unified',
+                height=800,
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=-0.08,
+                    xanchor="center",
+                    x=0.5
                 )
-        
-        with col_summary2:
-            df_night_shift = df_process[df_process['シフト'] == '夜勤']
-            if not df_night_shift.empty and skill_col in df_night_shift.columns:
-                st.info(
-                    f"**🌙 夜勤シフト 統計**\n\n"
-                    f"• 平均スキル: {df_night_shift[skill_col].mean():.2f} (σ={df_night_shift[skill_col].std():.2f})\n\n"
-                    f"• 平均不良率: {df_night_shift['品質不良率 (%)'].mean():.2f}% (σ={df_night_shift['品質不良率 (%)'].std():.2f})\n\n"
-                    f"• データ数: {len(df_night_shift)}件",
-                    icon="🌙"
-                )
+            )
+            
+            st.plotly_chart(fig4, use_container_width=True)
+            
+            # チーム別シフト比較サマリー
+            st.markdown("#### 📊 チーム別統計サマリー")
+            
+            summary_data = []
+            
+            for team in selected_teams:
+                df_team = df_filtered_teams[df_filtered_teams['チーム'] == team]
+                
+                for shift in ['日勤', '夜勤']:
+                    df_team_shift = df_team[df_team['シフト'] == shift]
+                    
+                    if not df_team_shift.empty and skill_col in df_team_shift.columns:
+                        summary_data.append({
+                            'チーム': team,
+                            'シフト': shift,
+                            '平均スキル': f"{df_team_shift[skill_col].mean():.2f}",
+                            '平均不良率': f"{df_team_shift['品質不良率 (%)'].mean():.2f}%",
+                            'データ数': len(df_team_shift),
+                            'スキル標準偏差': f"{df_team_shift[skill_col].std():.2f}",
+                            '不良率標準偏差': f"{df_team_shift['品質不良率 (%)'].std():.2f}%"
+                        })
+            
+            if summary_data:
+                df_summary_table = pd.DataFrame(summary_data)
+                st.dataframe(df_summary_table, use_container_width=True, hide_index=True)
+                
+                # チーム間の差分分析
+                st.markdown("#### 💡 チーム間の差分分析")
+                
+                # 各シフトでの最高・最低パフォーマンスチーム
+                for shift in ['日勤', '夜勤']:
+                    shift_data = [d for d in summary_data if d['シフト'] == shift]
+                    
+                    if len(shift_data) > 1:
+                        # 不良率で比較
+                        defect_rates = [(d['チーム'], float(d['平均不良率'].rstrip('%'))) for d in shift_data]
+                        best_team = min(defect_rates, key=lambda x: x[1])
+                        worst_team = max(defect_rates, key=lambda x: x[1])
+                        
+                        diff = worst_team[1] - best_team[1]
+                        
+                        if diff > 0.5:
+                            st.info(
+                                f"**{shift}シフト分析**\n\n"
+                                f"• 最優秀: {best_team[0]} ({best_team[1]:.2f}%)\n\n"
+                                f"• 要改善: {worst_team[0]} ({worst_team[1]:.2f}%)\n\n"
+                                f"• 差分: {diff:.2f}%\n\n"
+                                f"→ {best_team[0]}のベストプラクティスを{worst_team[0]}に展開",
+                                icon="📊"
+                            )
+            else:
+                st.info("選択されたチームのデータがありません", icon="ℹ️")
     
     st.markdown("---")
     
