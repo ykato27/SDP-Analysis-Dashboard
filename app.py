@@ -3,6 +3,7 @@ from data_loader import generate_dummy_data
 from views.welcome import show_welcome_screen
 from views.executive_summary import show_executive_summary
 from views.root_cause_analysis import show_root_cause_analysis
+from views.quality_skill_analysis import show_quality_skill_analysis
 from views.action_plan import show_action_plan
 from views.monitoring import show_monitoring_dashboard
 from views.raw_data import show_raw_data
@@ -77,13 +78,17 @@ with st.sidebar:
             "description": "スキルギャップの詳細分析",
             "icon": "🔬"
         },
+        "📈 品質×力量分析": {
+            "description": "歩留まりとスキルの時系列分析",
+            "icon": "📈"
+        },
         "📋 アクションプラン": {
             "description": "具体的な改善施策の提示",
             "icon": "📋"
         },
-        "📈 継続モニタリング": {
+        "📉 継続モニタリング": {
             "description": "KPI追跡とアラート",
-            "icon": "📈"
+            "icon": "📉"
         },
         "📁 生データ閲覧": {
             "description": "元データの参照・ダウンロード",
@@ -163,6 +168,19 @@ elif st.session_state.selected_menu == "🔬 根本原因分析":
     else:
         st.warning("分析対象拠点を選択してください。", icon="⚠️")
 
+elif st.session_state.selected_menu == "📈 品質×力量分析":
+    if st.session_state.target_location:
+        show_quality_skill_analysis(
+            df_daily_prod,
+            df_skill,
+            st.session_state.target_location,
+            skill_categories,
+            skill_hierarchy,
+            processes
+        )
+    else:
+        st.warning("分析対象拠点を選択してください。", icon="⚠️")
+
 elif st.session_state.selected_menu == "📋 アクションプラン":
     if st.session_state.target_location:
         priority_skill = st.session_state.priority_skill if st.session_state.priority_skill else "製銑 - 設備操作"
@@ -174,7 +192,7 @@ elif st.session_state.selected_menu == "📋 アクションプラン":
     else:
         st.warning("分析対象拠点を選択してください。", icon="⚠️")
 
-elif st.session_state.selected_menu == "📈 継続モニタリング":
+elif st.session_state.selected_menu == "📉 継続モニタリング":
     if st.session_state.target_location:
         show_monitoring_dashboard(
             df_daily_prod,

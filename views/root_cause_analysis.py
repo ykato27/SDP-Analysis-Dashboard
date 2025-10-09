@@ -181,7 +181,7 @@ def show_root_cause_analysis(df_skill, target_location, all_skills, skill_to_cat
         )
     
     # スキルカテゴリ内の個別スキル分布
-    st.markdown(f"#### 【{selected_category}】内の個別スキル分布")
+    st.markdown(f"#### 【{selected_category}】内の個別スキル分布（平均とバラツキ）")
     
     category_skills = skill_hierarchy[selected_category]['skills']
     
@@ -189,49 +189,94 @@ def show_root_cause_analysis(df_skill, target_location, all_skills, skill_to_cat
     target_process_filtered = df_target[df_target['工程'] == selected_process]
     benchmark_process_filtered = df_benchmark[df_benchmark['工程'] == selected_process]
     
-    # 各スキルの平均を計算
-    skill_comparison = []
+    # スキルごとのデータを集める
+    skill_distribution_data = []
+    
     for skill in category_skills:
-        target_skill_mean = target_process_filtered[skill].mean()
-        benchmark_skill_mean = benchmark_process_filtered[skill].mean()
-        gap = benchmark_skill_mean - target_skill_mean
+        # 対象拠点
+        for score in target_process_filtered[skill].dropna():
+            skill_distribution_data.append({
+                'スキル': skill,
+                '拠点': target_location,
+                'スコア': score
+            })
         
-        skill_comparison.append({
-            'スキル': skill,
-            f'{target_location}': target_skill_mean,
-            '日本': benchmark_skill_mean,
-            'ギャップ': gap
-        })
+        # ベンチマーク
+        for score in benchmark_process_filtered[skill].dropna():
+            skill_distribution_data.append({
+                'スキル': skill,
+                '拠点': '日本 (ベンチマーク)',
+                'スコア': score
+            })
     
-    df_skill_comp = pd.DataFrame(skill_comparison)
+    df_dist = pd.DataFrame(skill_distribution_data)
     
-    # 棒グラフで比較
-    fig_compare = go.Figure()
-    
-    fig_compare.add_trace(go.Bar(
-        name=target_location,
-        x=df_skill_comp['スキル'],
-        y=df_skill_comp[target_location],
-        marker_color='#ff7f0e'
-    ))
-    
-    fig_compare.add_trace(go.Bar(
-        name='日本 (ベンチマーク)',
-        x=df_skill_comp['スキル'],
-        y=df_skill_comp['日本'],
-        marker_color='#2ca02c'
-    ))
-    
-    fig_compare.update_layout(
-        title=f'{selected_process} - {selected_category}: 個別スキル比較',
-        xaxis_title='スキル',
-        yaxis_title='平均スコア',
-        barmode='group',
-        height=400,
-        yaxis=dict(range=[1, 5])
-    )
-    
-    st.plotly_chart(fig_compare, use_container_width=True)
+    if not df_dist.empty:
+        # バイオリンプロット + 平均値マーカー
+        fig_violin = go.Figure()
+        
+        colors = {target_location: '#ff7f0e', '日本 (ベンチマーク)': '#2ca02c'}
+        
+        for location in [target_location, '日本 (ベンチマーク)']:
+            df_loc = df_dist[df_dist['拠点'] == location]
+            
+            for skill in category_skills:
+                df_skill_loc = df_loc[df_loc['スキル'] == skill]
+                
+                if not df_skill_loc.empty:
+                    # バイオリンプロット
+                    fig_violin.add_trace(go.Violin(
+                        x=df_skill_loc['スキル'],
+                        y=df_skill_loc['スコア'],
+                        name=location,
+                        legendgroup=location,
+                        scalegroup=skill,
+                        side='positive' if location == target_location else 'negative',
+                        line_color=colors[location],
+                        showlegend=(skill == category_skills[0]),  # 最初のスキルだけ凡例表示
+                        meanline_visible=True,
+                        points=False
+                    ))
+        
+        fig_violin.update_layout(
+            title=f'{selected_process} - {selected_category}: スキル別分布（バイオリンプロット）',
+            xaxis_title='スキル',
+            yaxis_title='スコア',
+            yaxis=dict(range=[0.5, 5.5], dtick=1),
+            height=450,
+            violinmode='overlay',
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
+        
+        st.plotly_chart(fig_violin, use_container_width=True)
+        
+        # 統計サマリー
+        st.markdown("##### 📊 スキル別統計")
+        
+        summary_data = []
+        for skill in category_skills:
+            target_skill_data = df_dist[(df_dist['スキル'] == skill) & (df_dist['拠点'] == target_location)]['スコア']
+            bench_skill_data = df_dist[(df_dist['スキル'] == skill) & (df_dist['拠点'] == '日本 (ベンチマーク)')]['スコア']
+            
+            summary_data.append({
+                'スキル': skill,
+                f'{target_location} 平均': f"{target_skill_data.mean():.2f}",
+                f'{target_location} 標準偏差': f"{target_skill_data.std():.2f}",
+                'ベンチマーク 平均': f"{bench_skill_data.mean():.2f}",
+                'ベンチマーク 標準偏差': f"{bench_skill_data.std():.2f}",
+                'ギャップ': f"{bench_skill_data.mean() - target_skill_data.mean():.2f}"
+            })
+        
+        df_summary = pd.DataFrame(summary_data)
+        st.dataframe(df_summary, use_container_width=True, hide_index=True)
+    else:
+        st.warning("分布データが不足しています")
     
     # 分布の詳細（ヒストグラム）
     st.markdown(f"#### 分布の詳細: {selected_process} - {selected_category}")

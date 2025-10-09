@@ -8,6 +8,7 @@ from datetime import date, timedelta
 def generate_dummy_data():
     """
     鉄鋼業向けのダミーデータを生成
+    シフトローテーション: 4日日勤 → 2日休み → 4日夜勤 → 2日休み（3チーム制）
     
     Returns:
         tuple: (df_skill, df_daily_prod, skill_hierarchy, all_skills, 
@@ -15,11 +16,14 @@ def generate_dummy_data():
     """
     # --- 定義 ---
     np.random.seed(42)
-    num_data = 250
+    num_data = 300  # 従業員数を増やす（各拠点×各工程で十分な人数を確保）
     locations = ['日本 (JP)', '拠点A (IN)', '拠点B (BR)', '拠点C (VN)']
     
     # 鉄鋼業の工程
     processes = ['製銑', '製鋼', '圧延', '表面処理', '出荷']
+    
+    # チーム（3チーム制でローテーション）
+    teams = ['Aチーム', 'Bチーム', 'Cチーム']
     
     shifts = ['日勤', '夜勤']
     
@@ -92,8 +96,8 @@ def generate_dummy_data():
     skill_data = {
         '拠点': np.random.choice(locations, num_data),
         '工程': np.random.choice(processes, num_data),
-        'シフト': np.random.choice(shifts, num_data),
-        '従業員ID': [f'EMP_{i+1:03d}' for i in range(num_data)],
+        'チーム': np.random.choice(teams, num_data),
+        '従業員ID': [f'EMP_{i+1:04d}' for i in range(num_data)],
         '評価日': [date.today() - timedelta(days=np.random.randint(1, 180)) for _ in range(num_data)]
     }
     df_temp = pd.DataFrame(skill_data)
@@ -162,39 +166,103 @@ def generate_dummy_data():
 
     df_skill = pd.DataFrame(skill_data)
     
-    # --- 日次生産実績データ生成 ---
-    start_date = date.today() - timedelta(days=30)
+    # --- 日次生産実績データ生成（シフトローテーション対応） ---
+    start_date = date.today() - timedelta(days=60)  # 60日分のデータ
     end_date = date.today()
     production_records = []
     
-    for single_date in (start_date + timedelta(n) for n in range((end_date - start_date).days + 1)):
+    # シフトローテーションパターン: 4日日勤 → 2日休み → 4日夜勤 → 2日休み（10日サイクル）
+    # Aチーム: Day 0-3 日勤, Day 4-5 休み, Day 6-9 夜勤, Day 10-11 休み
+    # Bチーム: Day 0-3 夜勤, Day 4-5 休み, Day 6-9 日勤, Day 10-11 休み  
+    # Cチーム: Day 0-1 休み, Day 2-5 日勤, Day 6-7 休み, Day 8-11 夜勤
+    
+    def get_shift_for_team(team, day_offset):
+        """チームと経過日数からシフトを決定"""
+        cycle_day = day_offset % 12  # 12日サイクル
+        
+        if team == 'Aチーム':
+            if 0 <= cycle_day <= 3:
+                return '日勤'
+            elif 4 <= cycle_day <= 5:
+                return '休み'
+            elif 6 <= cycle_day <= 9:
+                return '夜勤'
+            else:
+                return '休み'
+        elif team == 'Bチーム':
+            if 0 <= cycle_day <= 3:
+                return '夜勤'
+            elif 4 <= cycle_day <= 5:
+                return '休み'
+            elif 6 <= cycle_day <= 9:
+                return '日勤'
+            else:
+                return '休み'
+        else:  # Cチーム
+            if 0 <= cycle_day <= 1:
+                return '休み'
+            elif 2 <= cycle_day <= 5:
+                return '日勤'
+            elif 6 <= cycle_day <= 7:
+                return '休み'
+            else:
+                return '夜勤'
+    
+    # 日ごとにデータを生成
+    for day_offset, single_date in enumerate((start_date + timedelta(n) for n in range((end_date - start_date).days + 1))):
         for loc in locations:
             for process in processes:
-                for shift in shifts:
-                    # その工程・シフトの平均スキルを計算
-                    avg_skill_for_day = df_skill.loc[
+                for team in teams:
+                    shift = get_shift_for_team(team, day_offset)
+                    
+                    if shift == '休み':
+                        continue  # 休みの日はデータなし
+                    
+                    # その工程・チームの従業員のスキルを計算
+                    team_members = df_skill[
                         (df_skill['拠点'] == loc) & 
                         (df_skill['工程'] == process) & 
-                        (df_skill['シフト'] == shift), 
-                        all_skills
-                    ].mean().mean()
+                        (df_skill['チーム'] == team)
+                    ]
+                    
+                    if len(team_members) == 0:
+                        continue
+                    
+                    # カテゴリ別の平均スキル
+                    category_skills = {}
+                    for category in skill_categories:
+                        cat_skills = skill_hierarchy[category]['skills']
+                        category_skills[f'{category}_平均'] = team_members[cat_skills].mean().mean()
+                    
+                    avg_skill_for_day = team_members[all_skills].mean().mean()
                     
                     if pd.isna(avg_skill_for_day): 
                         avg_skill_for_day = 3.0
 
+                    # 生産効率と品質（歩留まり）
                     efficiency = (75 + avg_skill_for_day * 4 + np.random.randn() * 3).clip(75, 98).round(1)
                     defect_rate = (6 - avg_skill_for_day * 0.8 + np.random.randn() * 0.8).clip(0.5, 6).round(2)
+                    yield_rate = (100 - defect_rate).round(2)  # 歩留まり = 100 - 不良率
                     
-                    production_records.append({
+                    record = {
                         '日付': single_date,
                         '拠点': loc,
                         '工程': process,
+                        'チーム': team,
                         'シフト': shift,
                         '日次生産量 (t)': np.random.randint(500, 3000) * (1 + (avg_skill_for_day - 3.5) / 5),
                         '生産効率 (%)': efficiency,
                         '品質不良率 (%)': defect_rate,
-                        '平均スキル予測値': avg_skill_for_day.round(2)
-                    })
+                        '歩留まり (%)': yield_rate,
+                        '平均スキル予測値': avg_skill_for_day.round(2),
+                        '従業員数': len(team_members)
+                    }
+                    
+                    # カテゴリ別スキル平均を追加
+                    for cat, val in category_skills.items():
+                        record[cat] = round(val, 2) if not pd.isna(val) else 3.0
+                    
+                    production_records.append(record)
 
     df_daily_prod = pd.DataFrame(production_records)
     
