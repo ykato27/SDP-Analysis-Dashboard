@@ -16,6 +16,10 @@ def show_quality_skill_analysis(df_daily_prod, df_skill, target_location, skill_
     # データフィルタリング
     df_filtered = df_daily_prod[df_daily_prod['拠点'] == target_location].copy()
     
+    # 日付列をdatetime型に変換
+    if not pd.api.types.is_datetime64_any_dtype(df_filtered['日付']):
+        df_filtered['日付'] = pd.to_datetime(df_filtered['日付'])
+    
     if df_filtered.empty:
         st.warning(f"{target_location}のデータが存在しません。", icon="⚠️")
         return
@@ -176,33 +180,42 @@ def show_quality_skill_analysis(df_daily_prod, df_skill, target_location, skill_
             for team in sorted(teams):
                 df_team = df_process[df_process['チーム'] == team]
                 
+                # 日付をフォーマット（datetime型に変換済みであることを確認）
+                if pd.api.types.is_datetime64_any_dtype(df_team['日付']):
+                    date_text = df_team['日付'].dt.strftime('%Y-%m-%d')
+                else:
+                    date_text = df_team['日付'].astype(str)
+                
                 fig_scatter.add_trace(go.Scatter(
                     x=df_team[skill_col],
                     y=df_team['歩留まり (%)'],
                     mode='markers',
                     name=team,
                     marker=dict(size=8, color=colors_yield.get(team, '#1f77b4')),
-                    text=df_team['日付'].dt.strftime('%Y-%m-%d'),
+                    text=date_text,
                     hovertemplate='<b>%{text}</b><br>スキル: %{x:.2f}<br>歩留まり: %{y:.1f}%<extra></extra>'
                 ))
             
             # トレンドライン
-            from scipy import stats
-            x_data = df_process[skill_col].dropna()
-            y_data = df_process.loc[x_data.index, '歩留まり (%)']
-            
-            if len(x_data) > 2:
-                slope, intercept, r_value, p_value, std_err = stats.linregress(x_data, y_data)
-                line_x = [x_data.min(), x_data.max()]
-                line_y = [slope * x + intercept for x in line_x]
+            try:
+                from scipy import stats
+                x_data = df_process[skill_col].dropna()
+                y_data = df_process.loc[x_data.index, '歩留まり (%)']
                 
-                fig_scatter.add_trace(go.Scatter(
-                    x=line_x,
-                    y=line_y,
-                    mode='lines',
-                    name=f'トレンド (R²={r_value**2:.3f})',
-                    line=dict(color='red', dash='dash', width=2)
-                ))
+                if len(x_data) > 2:
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(x_data, y_data)
+                    line_x = [x_data.min(), x_data.max()]
+                    line_y = [slope * x + intercept for x in line_x]
+                    
+                    fig_scatter.add_trace(go.Scatter(
+                        x=line_x,
+                        y=line_y,
+                        mode='lines',
+                        name=f'トレンド (R²={r_value**2:.3f})',
+                        line=dict(color='red', dash='dash', width=2)
+                    ))
+            except ImportError:
+                st.warning("scipyがインストールされていないため、トレンドラインを表示できません。", icon="⚠️")
             
             fig_scatter.update_layout(
                 title=f'歩留まり vs {selected_category}スキル',
