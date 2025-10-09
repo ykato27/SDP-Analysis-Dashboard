@@ -4,6 +4,7 @@ from views.welcome import show_welcome_screen
 from views.executive_summary import show_executive_summary
 from views.root_cause_analysis import show_root_cause_analysis
 from views.quality_skill_analysis import show_quality_skill_analysis
+from views.integrated_quality_analysis import show_integrated_quality_analysis
 from views.action_plan import show_action_plan
 from views.monitoring import show_monitoring_dashboard
 from views.raw_data import show_raw_data
@@ -77,6 +78,10 @@ with st.sidebar:
         "🔬 根本原因分析": {
             "description": "スキルギャップの詳細分析",
             "icon": "🔬"
+        },
+        "🎯 統合品質×力量分析": {
+            "description": "4つの新しい可視化手法で多角的に分析",
+            "icon": "🎯"
         },
         "📈 品質×力量分析": {
             "description": "歩留まりとスキルの時系列分析",
@@ -165,6 +170,19 @@ elif st.session_state.selected_menu == "🔬 根本原因分析":
             processes
         )
         st.session_state.priority_skill = priority_skill
+    else:
+        st.warning("分析対象拠点を選択してください。", icon="⚠️")
+
+elif st.session_state.selected_menu == "🎯 統合品質×力量分析":
+    if st.session_state.target_location:
+        show_integrated_quality_analysis(
+            df_daily_prod,
+            df_skill,
+            st.session_state.target_location,
+            skill_categories,
+            skill_hierarchy,
+            processes
+        )
     else:
         st.warning("分析対象拠点を選択してください。", icon="⚠️")
 
