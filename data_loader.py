@@ -143,32 +143,38 @@ def generate_dummy_data():
         # 新データの拠点リストを取得
         available_locations = df_daily_prod['拠点'].unique().tolist()
         
-        # スキルデータは拠点ごとに生成（簡易版）
+        # スキルデータは拠点×工程ごとに生成（各組み合わせ20人）
         skill_data_list = []
+        emp_id_counter = 1
+        
         for location in available_locations:
-            for _ in range(25):  # 各拠点25人
-                skill_data_list.append({
-                    '拠点': location,
-                    '工程': np.random.choice(processes),
-                    'チーム': np.random.choice(teams),
-                    '従業員ID': f'EMP_{location[:2]}_{len(skill_data_list)+1:04d}',
-                    '評価日': date.today() - timedelta(days=np.random.randint(1, 180))
-                })
+            for process in processes:
+                for _ in range(20):  # 各拠点×工程で20人
+                    skill_data_list.append({
+                        '拠点': location,
+                        '工程': process,
+                        'チーム': np.random.choice(teams),
+                        '従業員ID': f'EMP_{location[:2]}_{emp_id_counter:04d}',
+                        '評価日': date.today() - timedelta(days=np.random.randint(1, 180))
+                    })
+                    emp_id_counter += 1
         
         # 各スキルのスコアを生成
-        for skill in all_skills:
-            for item in skill_data_list:
-                # 拠点ごとにスキルレベルを調整
-                if item['拠点'] == '日本 (JP)':
-                    base_score = np.random.randint(3, 5)
-                elif item['拠点'] == '拠点A (IN)':
-                    base_score = np.random.randint(2, 4)
-                elif item['拠点'] == '拠点B (BR)':
-                    base_score = np.random.randint(2, 4)
-                else:  # 拠点C (VN)
-                    base_score = np.random.randint(2, 4)
-                
-                item[skill] = np.clip(base_score + np.random.randint(-1, 2), 1, 5)
+        for item in skill_data_list:
+            # 拠点ごとにスキルレベルを調整
+            if item['拠点'] == '日本 (JP)':
+                base_score = np.random.uniform(3.5, 4.8)
+            elif item['拠点'] == '拠点A (IN)':
+                base_score = np.random.uniform(2.5, 4.0)
+            elif item['拠点'] == '拠点B (BR)':
+                base_score = np.random.uniform(2.3, 3.8)
+            else:  # 拠点C (VN)
+                base_score = np.random.uniform(2.2, 3.6)
+            
+            # 各スキルにスコアを付与（カテゴリごとに少し変動）
+            for skill in all_skills:
+                variation = np.random.uniform(-0.3, 0.3)
+                item[skill] = int(np.clip(base_score + variation, 1, 5))
         
         df_skill = pd.DataFrame(skill_data_list)
         
@@ -178,9 +184,10 @@ def generate_dummy_data():
             df_skill[f'{category}_平均'] = df_skill[category_skills].mean(axis=1).round(2)
         
         # 総合スキルスコアを追加
+        num_employees = len(df_skill)
         df_skill['総合スキルスコア'] = df_skill[all_skills].mean(axis=1).round(2)
-        df_skill['生産効率 (%)'] = (60 + df_skill['総合スキルスコア'] * 8 + np.random.randn(100) * 4).clip(75, 98).round(1)
-        df_skill['品質不良率 (%)'] = (8 - df_skill['総合スキルスコア'] * 1.2 + np.random.randn(100) * 1).clip(0.5, 8).round(1)
+        df_skill['生産効率 (%)'] = (60 + df_skill['総合スキルスコア'] * 8 + np.random.randn(num_employees) * 4).clip(75, 98).round(1)
+        df_skill['品質不良率 (%)'] = (8 - df_skill['総合スキルスコア'] * 1.2 + np.random.randn(num_employees) * 1).clip(0.5, 8).round(1)
         
         return df_skill, df_daily_prod, skill_hierarchy, all_skills, skill_to_category, skill_categories, processes
     
