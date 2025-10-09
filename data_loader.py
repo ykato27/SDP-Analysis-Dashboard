@@ -140,20 +140,37 @@ def generate_dummy_data():
         df_daily_prod = pd.read_csv(new_dummy_path)
         df_daily_prod['日付'] = pd.to_datetime(df_daily_prod['日付'])
         
-        # スキルデータは従来通り生成（簡易版）
-        skill_data = {
-            '拠点': ['東京工場'] * 100,  # 新しいダミーデータは東京工場のみ
-            '工程': np.random.choice(processes, 100),
-            'チーム': np.random.choice(teams, 100),
-            '従業員ID': [f'EMP_{i+1:04d}' for i in range(100)],
-            '評価日': [date.today() - timedelta(days=np.random.randint(1, 180)) for _ in range(100)]
-        }
+        # 新データの拠点リストを取得
+        available_locations = df_daily_prod['拠点'].unique().tolist()
+        
+        # スキルデータは拠点ごとに生成（簡易版）
+        skill_data_list = []
+        for location in available_locations:
+            for _ in range(25):  # 各拠点25人
+                skill_data_list.append({
+                    '拠点': location,
+                    '工程': np.random.choice(processes),
+                    'チーム': np.random.choice(teams),
+                    '従業員ID': f'EMP_{location[:2]}_{len(skill_data_list)+1:04d}',
+                    '評価日': date.today() - timedelta(days=np.random.randint(1, 180))
+                })
         
         # 各スキルのスコアを生成
         for skill in all_skills:
-            skill_data[skill] = np.random.randint(2, 5, 100)
+            for item in skill_data_list:
+                # 拠点ごとにスキルレベルを調整
+                if item['拠点'] == '日本 (JP)':
+                    base_score = np.random.randint(3, 5)
+                elif item['拠点'] == '拠点A (IN)':
+                    base_score = np.random.randint(2, 4)
+                elif item['拠点'] == '拠点B (BR)':
+                    base_score = np.random.randint(2, 4)
+                else:  # 拠点C (VN)
+                    base_score = np.random.randint(2, 4)
+                
+                item[skill] = np.clip(base_score + np.random.randint(-1, 2), 1, 5)
         
-        df_skill = pd.DataFrame(skill_data)
+        df_skill = pd.DataFrame(skill_data_list)
         
         # カテゴリ別の平均スコアを計算
         for category in skill_categories:

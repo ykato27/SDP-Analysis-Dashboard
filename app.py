@@ -119,17 +119,14 @@ with st.sidebar:
         st.markdown("### 🎯 分析対象設定")
         
         # 利用可能な拠点を取得
-        available_locations = df_skill['拠点'].unique().tolist()
+        available_locations = sorted(df_skill['拠点'].unique().tolist())
         
-        # 新しいダミーデータ（東京工場）がある場合はそれを使用
-        if '東京工場' in available_locations:
-            default_location = '東京工場'
-            display_locations = ['東京工場']
-        else:
-            # 従来のデータの場合
+        # 日本を除く海外拠点を優先表示
+        if '日本 (JP)' in available_locations:
             overseas_locations = [loc for loc in available_locations if loc != '日本 (JP)']
-            default_location = overseas_locations[0] if overseas_locations else available_locations[0]
             display_locations = overseas_locations if overseas_locations else available_locations
+        else:
+            display_locations = available_locations
         
         selected_location = st.selectbox(
             '詳細分析対象拠点',
