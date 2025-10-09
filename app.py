@@ -41,7 +41,7 @@ def load_data():
     """データをキャッシュして読み込み"""
     return generate_dummy_data()
 
-df_skill, df_daily_prod, skills_info, skill_names = load_data()
+df_skill, df_daily_prod, skill_hierarchy, all_skills, skill_to_category, skill_categories, processes = load_data()
 
 # --------------------------------------------------------------------------------
 # サイドバー: SDP分析メニュー
@@ -147,7 +147,11 @@ elif st.session_state.selected_menu == "🔬 根本原因分析":
         priority_skill = show_root_cause_analysis(
             df_skill, 
             st.session_state.target_location,
-            skill_names
+            all_skills,
+            skill_to_category,
+            skill_categories,
+            skill_hierarchy,
+            processes
         )
         st.session_state.priority_skill = priority_skill
     else:

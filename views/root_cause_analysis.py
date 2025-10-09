@@ -1,14 +1,16 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-def show_root_cause_analysis(df_skill, target_location, skill_names):
+def show_root_cause_analysis(df_skill, target_location, all_skills, skill_to_category, skill_categories, skill_hierarchy, processes):
     """特定拠点の根本原因分析"""
     
     st.markdown(f"""
     <div class="header-container">
         <div class="header-title">🔬 根本原因分析: {target_location}</div>
-        <div class="header-subtitle">スキルギャップの具体的な原因と、ボトルネックとなっている従業員・シフト・スキル項目を特定</div>
+        <div class="header-subtitle">工程×スキルカテゴリ別のギャップ分析とボトルネック特定</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -53,169 +55,327 @@ def show_root_cause_analysis(df_skill, target_location, skill_names):
     
     st.markdown("---")
     
-    # スキル別ギャップ分析
+    # 工程×スキルカテゴリ分析
     st.markdown("""
     <div class="section-header">
-        <h2 class="section-title">📉 スキルカテゴリ別ギャップ分析</h2>
-        <p class="section-subtitle">各スキルの習熟度とベンチマークとの差異（影響度加味）</p>
+        <h2 class="section-title">📉 工程×スキルカテゴリ別ギャップ分析</h2>
+        <p class="section-subtitle">各工程におけるスキルカテゴリの平均値とバラツキを日本と比較</p>
     </div>
     """, unsafe_allow_html=True)
     
-    skill_gap_data = []
-    impact_weights = {
-        '成形技術': 1.5,
-        'NCプログラム': 1.3,
-        '品質検査': 1.4,
-        '設備保全': 1.2,
-        '安全管理': 1.0
-    }
+    # 工程×スキルカテゴリのヒートマップデータを作成
+    heatmap_data = []
     
-    for skill in skill_names:
-        target_mean = df_target[skill].mean()
-        benchmark_mean = df_benchmark[skill].mean()
-        gap = benchmark_mean - target_mean
-        weighted_gap = gap * impact_weights.get(skill, 1.0)
-        
-        priority = '🔴 最優先' if weighted_gap > 0.8 else ('🟡 優先' if weighted_gap > 0.5 else '🟢 中')
-        
-        skill_gap_data.append({
-            'スキル': skill,
-            '当拠点平均': f"{target_mean:.2f}",
-            'ベンチマーク': f"{benchmark_mean:.2f}",
-            'ギャップ': f"{gap:.2f}",
-            '影響度係数': impact_weights.get(skill, 1.0),
-            '影響度加味': f"{weighted_gap:.2f}",
-            '改善優先度': priority,
-            '_weighted_gap_value': weighted_gap
-        })
+    for process in processes:
+        for category in skill_categories:
+            # 対象拠点のデータ
+            target_process_data = df_target[df_target['工程'] == process]
+            category_skills = skill_hierarchy[category]['skills']
+            target_mean = target_process_data[category_skills].mean().mean()
+            target_std = target_process_data[category_skills].std().mean()
+            
+            # ベンチマークのデータ
+            benchmark_process_data = df_benchmark[df_benchmark['工程'] == process]
+            benchmark_mean = benchmark_process_data[category_skills].mean().mean()
+            benchmark_std = benchmark_process_data[category_skills].std().mean()
+            
+            gap = benchmark_mean - target_mean if not pd.isna(target_mean) else 0
+            
+            heatmap_data.append({
+                '工程': process,
+                'スキルカテゴリ': category,
+                '対象拠点_平均': target_mean,
+                '対象拠点_バラツキ': target_std,
+                'ベンチマーク_平均': benchmark_mean,
+                'ベンチマーク_バラツキ': benchmark_std,
+                'ギャップ': gap,
+                '人数': len(target_process_data)
+            })
     
-    df_skill_gap = pd.DataFrame(skill_gap_data)
-    df_skill_gap_sorted = df_skill_gap.sort_values('_weighted_gap_value', ascending=False)
+    df_heatmap = pd.DataFrame(heatmap_data)
     
-    # 表示用データ（_weighted_gap_value列を除外）
-    df_display = df_skill_gap_sorted.drop(columns=['_weighted_gap_value'])
-    st.dataframe(df_display, use_container_width=True, hide_index=True)
+    # ヒートマップ表示（クリック可能）
+    st.markdown("### 🔥 工程×スキルカテゴリ ギャップヒートマップ")
+    st.markdown("**クリック可能**: 各セルをクリックすると、下部に詳細な分布が表示されます")
     
-    # 最も課題のあるスキルを特定
-    priority_skill = df_skill_gap_sorted.iloc[0]['スキル']
-    priority_weighted_gap = df_skill_gap_sorted.iloc[0]['_weighted_gap_value']
+    # ピボットテーブル作成
+    pivot_table = df_heatmap.pivot(index='工程', columns='スキルカテゴリ', values='ギャップ')
     
-    st.success(
-        f"🎯 **最優先改善スキル**: {priority_skill}（影響度加味ギャップ: {priority_weighted_gap:.2f}）",
-        icon="🎯"
+    # ヒートマップ描画
+    fig_heatmap = go.Figure(data=go.Heatmap(
+        z=pivot_table.values,
+        x=pivot_table.columns,
+        y=pivot_table.index,
+        colorscale='RdYlGn_r',  # 赤（大きいギャップ）→黄→緑（小さいギャップ）
+        text=pivot_table.values.round(2),
+        texttemplate='%{text}',
+        textfont={"size": 12},
+        colorbar=dict(title="ギャップ")
+    ))
+    
+    fig_heatmap.update_layout(
+        title='スキルギャップ（ベンチマーク - 対象拠点）',
+        xaxis_title='スキルカテゴリ',
+        yaxis_title='工程',
+        height=400
     )
     
+    st.plotly_chart(fig_heatmap, use_container_width=True)
+    
+    # インタラクティブな詳細表示
+    st.markdown("---")
+    st.markdown("### 📊 詳細分析: スキルカテゴリ別の分布比較")
+    
+    col_select1, col_select2 = st.columns(2)
+    
+    with col_select1:
+        selected_process = st.selectbox(
+            '分析対象の工程を選択',
+            options=processes,
+            index=0
+        )
+    
+    with col_select2:
+        selected_category = st.selectbox(
+            '分析対象のスキルカテゴリを選択',
+            options=skill_categories,
+            index=0
+        )
+    
+    # 選択された工程×スキルカテゴリのデータを抽出
+    selected_data = df_heatmap[
+        (df_heatmap['工程'] == selected_process) & 
+        (df_heatmap['スキルカテゴリ'] == selected_category)
+    ].iloc[0]
+    
+    # サマリー表示
+    col_sum1, col_sum2, col_sum3, col_sum4 = st.columns(4)
+    
+    with col_sum1:
+        st.metric(
+            f"{target_location} 平均",
+            f"{selected_data['対象拠点_平均']:.2f}",
+            help="5段階評価の平均"
+        )
+    
+    with col_sum2:
+        st.metric(
+            "ベンチマーク(日本) 平均",
+            f"{selected_data['ベンチマーク_平均']:.2f}",
+            help="5段階評価の平均"
+        )
+    
+    with col_sum3:
+        st.metric(
+            "ギャップ",
+            f"{selected_data['ギャップ']:.2f}",
+            delta=f"{'要改善' if selected_data['ギャップ'] > 0.5 else '良好'}",
+            delta_color="inverse" if selected_data['ギャップ'] > 0.5 else "normal"
+        )
+    
+    with col_sum4:
+        st.metric(
+            "対象人数",
+            f"{int(selected_data['人数'])}名",
+            help="この工程に配置されている従業員数"
+        )
+    
+    # スキルカテゴリ内の個別スキル分布
+    st.markdown(f"#### 【{selected_category}】内の個別スキル分布")
+    
+    category_skills = skill_hierarchy[selected_category]['skills']
+    
+    # 対象拠点とベンチマークのデータを抽出
+    target_process_filtered = df_target[df_target['工程'] == selected_process]
+    benchmark_process_filtered = df_benchmark[df_benchmark['工程'] == selected_process]
+    
+    # 各スキルの平均を計算
+    skill_comparison = []
+    for skill in category_skills:
+        target_skill_mean = target_process_filtered[skill].mean()
+        benchmark_skill_mean = benchmark_process_filtered[skill].mean()
+        gap = benchmark_skill_mean - target_skill_mean
+        
+        skill_comparison.append({
+            'スキル': skill,
+            f'{target_location}': target_skill_mean,
+            '日本': benchmark_skill_mean,
+            'ギャップ': gap
+        })
+    
+    df_skill_comp = pd.DataFrame(skill_comparison)
+    
+    # 棒グラフで比較
+    fig_compare = go.Figure()
+    
+    fig_compare.add_trace(go.Bar(
+        name=target_location,
+        x=df_skill_comp['スキル'],
+        y=df_skill_comp[target_location],
+        marker_color='#ff7f0e'
+    ))
+    
+    fig_compare.add_trace(go.Bar(
+        name='日本 (ベンチマーク)',
+        x=df_skill_comp['スキル'],
+        y=df_skill_comp['日本'],
+        marker_color='#2ca02c'
+    ))
+    
+    fig_compare.update_layout(
+        title=f'{selected_process} - {selected_category}: 個別スキル比較',
+        xaxis_title='スキル',
+        yaxis_title='平均スコア',
+        barmode='group',
+        height=400,
+        yaxis=dict(range=[1, 5])
+    ))
+    
+    st.plotly_chart(fig_compare, use_container_width=True)
+    
+    # 分布の詳細（ヒストグラム）
+    st.markdown(f"#### 分布の詳細: {selected_process} - {selected_category}")
+    
+    col_hist1, col_hist2 = st.columns(2)
+    
+    with col_hist1:
+        st.markdown(f"**{target_location} の分布**")
+        
+        # カテゴリ内の全スキルのスコアを集計
+        target_category_scores = []
+        for skill in category_skills:
+            target_category_scores.extend(target_process_filtered[skill].dropna().tolist())
+        
+        if target_category_scores:
+            fig_target_hist = px.histogram(
+                x=target_category_scores,
+                nbins=5,
+                title=f'{selected_category} スコア分布',
+                labels={'x': 'スコア', 'y': '人数'},
+                color_discrete_sequence=['#ff7f0e']
+            )
+            fig_target_hist.update_layout(showlegend=False, height=300)
+            fig_target_hist.update_xaxes(range=[0.5, 5.5], dtick=1)
+            st.plotly_chart(fig_target_hist, use_container_width=True)
+            
+            low_skill_count = sum(1 for s in target_category_scores if s <= 2)
+            st.error(
+                f"⚠️ **レベル2以下**: {low_skill_count}件 ({low_skill_count/len(target_category_scores)*100:.1f}%)",
+                icon="🚨"
+            )
+        else:
+            st.warning("データが不足しています")
+    
+    with col_hist2:
+        st.markdown("**日本 (ベンチマーク) の分布**")
+        
+        # カテゴリ内の全スキルのスコアを集計
+        benchmark_category_scores = []
+        for skill in category_skills:
+            benchmark_category_scores.extend(benchmark_process_filtered[skill].dropna().tolist())
+        
+        if benchmark_category_scores:
+            fig_bench_hist = px.histogram(
+                x=benchmark_category_scores,
+                nbins=5,
+                title=f'{selected_category} スコア分布',
+                labels={'x': 'スコア', 'y': '人数'},
+                color_discrete_sequence=['#2ca02c']
+            )
+            fig_bench_hist.update_layout(showlegend=False, height=300)
+            fig_bench_hist.update_xaxes(range=[0.5, 5.5], dtick=1)
+            st.plotly_chart(fig_bench_hist, use_container_width=True)
+            
+            bench_low_count = sum(1 for s in benchmark_category_scores if s <= 2)
+            st.success(
+                f"✅ **レベル2以下**: {bench_low_count}件 ({bench_low_count/len(benchmark_category_scores)*100:.1f}%)",
+                icon="✨"
+            )
+        else:
+            st.warning("データが不足しています")
+    
     st.markdown("---")
     
-    # 習熟度分布比較
-    st.markdown(f"### 🎯 最優先スキル【{priority_skill}】の習熟度分布")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown(f"#### {target_location} の分布")
-        target_dist = df_target[priority_skill].value_counts().sort_index()
-        fig_target = px.bar(
-            x=target_dist.index,
-            y=target_dist.values,
-            labels={'x': '習熟度', 'y': '人数'},
-            title=f'{priority_skill} 習熟度分布',
-            color=target_dist.values,
-            color_continuous_scale='Reds'
-        )
-        fig_target.update_layout(showlegend=False, height=350)
-        st.plotly_chart(fig_target, use_container_width=True)
-        
-        low_skill_count = df_target[df_target[priority_skill] <= 2].shape[0]
-        low_skill_ratio = low_skill_count / len(df_target) * 100
-        st.error(
-            f"⚠️ **レベル2以下**: {low_skill_count}名 ({low_skill_ratio:.1f}%)\n\n"
-            f"この{low_skill_count}名が最優先教育対象です。",
-            icon="🚨"
-        )
-    
-    with col2:
-        st.markdown("#### ベンチマーク (日本) の分布")
-        bench_dist = df_benchmark[priority_skill].value_counts().sort_index()
-        fig_bench = px.bar(
-            x=bench_dist.index,
-            y=bench_dist.values,
-            labels={'x': '習熟度', 'y': '人数'},
-            title=f'{priority_skill} 習熟度分布',
-            color=bench_dist.values,
-            color_continuous_scale='Greens'
-        )
-        fig_bench.update_layout(showlegend=False, height=350)
-        st.plotly_chart(fig_bench, use_container_width=True)
-        
-        bench_low = df_benchmark[df_benchmark[priority_skill] <= 2].shape[0]
-        bench_low_ratio = bench_low / len(df_benchmark) * 100
-        st.success(
-            f"✅ **レベル2以下**: {bench_low}名 ({bench_low_ratio:.1f}%)\n\n"
-            f"目標: この水準まで改善",
-            icon="✨"
-        )
-    
-    st.markdown("---")
-    
-    # シフト別・チーム別のボトルネック特定
+    # ボトルネック特定（シフト別）
     st.markdown("""
     <div class="section-header">
-        <h2 class="section-title">🔍 ボトルネック特定: シフト×チーム×スキル</h2>
+        <h2 class="section-title">🔍 ボトルネック特定: 工程×シフト×スキルカテゴリ</h2>
         <p class="section-subtitle">最も課題のある組織単位を特定し、集中的な対策を実施</p>
     </div>
     """, unsafe_allow_html=True)
     
-    bottleneck_analysis = df_target.groupby(['シフト', '組織・チーム']).agg({
-        priority_skill: ['mean', 'std', 'count'],
-        '生産効率 (%)': 'mean',
-        '品質不良率 (%)': 'mean'
-    }).reset_index()
+    # 最もギャップが大きい工程×スキルカテゴリを特定
+    top_gap_row = df_heatmap.sort_values('ギャップ', ascending=False).iloc[0]
+    priority_process = top_gap_row['工程']
+    priority_category = top_gap_row['スキルカテゴリ']
     
-    bottleneck_analysis.columns = ['シフト', 'チーム', 'スキル平均', 'スキルバラツキ', '人数', '生産効率', '不良率']
-    
-    # リスクスコアの計算
-    bottleneck_analysis['リスクスコア'] = (
-        (5 - bottleneck_analysis['スキル平均']) * 0.4 + 
-        bottleneck_analysis['スキルバラツキ'] * 0.3 +
-        bottleneck_analysis['不良率'] * 0.3
+    st.info(
+        f"💡 **最優先改善対象**: {priority_process} - {priority_category}\n\n"
+        f"ギャップ: {top_gap_row['ギャップ']:.2f} / 対象人数: {int(top_gap_row['人数'])}名",
+        icon="🎯"
     )
     
-    bottleneck_analysis = bottleneck_analysis.sort_values('リスクスコア', ascending=False)
+    # シフト別のボトルネック分析
+    bottleneck_analysis = []
     
-    def get_action_priority(score):
-        threshold_70 = bottleneck_analysis['リスクスコア'].quantile(0.7)
-        return '🔴 即時対応' if score > threshold_70 else '🟡 計画対応'
+    for process in processes:
+        for shift in ['日勤', '夜勤']:
+            process_shift_data = df_target[(df_target['工程'] == process) & (df_target['シフト'] == shift)]
+            
+            if len(process_shift_data) > 0:
+                for category in skill_categories:
+                    category_skills = skill_hierarchy[category]['skills']
+                    avg_score = process_shift_data[category_skills].mean().mean()
+                    std_score = process_shift_data[category_skills].std().mean()
+                    
+                    # リスクスコア計算
+                    risk_score = (5 - avg_score) * 0.5 + std_score * 0.5
+                    
+                    bottleneck_analysis.append({
+                        '工程': process,
+                        'シフト': shift,
+                        'スキルカテゴリ': category,
+                        '平均スコア': avg_score,
+                        'バラツキ': std_score,
+                        '人数': len(process_shift_data),
+                        'リスクスコア': risk_score
+                    })
     
-    bottleneck_analysis['対策優先度'] = bottleneck_analysis['リスクスコア'].apply(get_action_priority)
+    df_bottleneck = pd.DataFrame(bottleneck_analysis)
+    df_bottleneck = df_bottleneck.sort_values('リスクスコア', ascending=False).head(10)
     
-    # 数値のフォーマット
-    df_bottleneck_display = bottleneck_analysis.copy()
-    df_bottleneck_display['スキル平均'] = df_bottleneck_display['スキル平均'].apply(lambda x: f"{x:.2f}")
-    df_bottleneck_display['スキルバラツキ'] = df_bottleneck_display['スキルバラツキ'].apply(lambda x: f"{x:.2f}")
-    df_bottleneck_display['人数'] = df_bottleneck_display['人数'].astype(int)
-    df_bottleneck_display['生産効率'] = df_bottleneck_display['生産効率'].apply(lambda x: f"{x:.1f}%")
-    df_bottleneck_display['不良率'] = df_bottleneck_display['不良率'].apply(lambda x: f"{x:.2f}%")
+    def get_priority_label(score):
+        if score > df_bottleneck['リスクスコア'].quantile(0.7):
+            return '🔴 即時対応'
+        else:
+            return '🟡 計画対応'
+    
+    df_bottleneck['対策優先度'] = df_bottleneck['リスクスコア'].apply(get_priority_label)
+    
+    # フォーマット
+    df_bottleneck_display = df_bottleneck.copy()
+    df_bottleneck_display['平均スコア'] = df_bottleneck_display['平均スコア'].apply(lambda x: f"{x:.2f}")
+    df_bottleneck_display['バラツキ'] = df_bottleneck_display['バラツキ'].apply(lambda x: f"{x:.2f}")
     df_bottleneck_display['リスクスコア'] = df_bottleneck_display['リスクスコア'].apply(lambda x: f"{x:.2f}")
     
     st.dataframe(
-        df_bottleneck_display[['対策優先度', 'シフト', 'チーム', 'スキル平均', 'スキルバラツキ', '人数', '生産効率', '不良率', 'リスクスコア']],
+        df_bottleneck_display[['対策優先度', '工程', 'シフト', 'スキルカテゴリ', '平均スコア', 'バラツキ', '人数', 'リスクスコア']],
         use_container_width=True,
         hide_index=True
     )
     
-    # 最優先対応チーム
-    top_bottleneck = bottleneck_analysis.iloc[0]
-    
-    st.error(
-        f"🚨 **即時対応が必要な組織**: {top_bottleneck['シフト']} - {top_bottleneck['チーム']}\n\n"
-        f"- スキル平均: {top_bottleneck['スキル平均']:.2f}（目標: 3.5以上）\n"
-        f"- 対象人数: {int(top_bottleneck['人数'])}名\n"
-        f"- 生産効率: {top_bottleneck['生産効率']:.1f}%\n"
-        f"- 品質不良率: {top_bottleneck['不良率']:.2f}%\n\n"
-        f"**推奨アクション**: この組織への集中的な教育プログラムを最優先で実施",
-        icon="⚠️"
-    )
+    # 最優先対応
+    if not df_bottleneck.empty:
+        top_bottleneck = df_bottleneck.iloc[0]
+        
+        st.error(
+            f"🚨 **即時対応が必要な組織**: {top_bottleneck['工程']} - {top_bottleneck['シフト']} - {top_bottleneck['スキルカテゴリ']}\n\n"
+            f"- 平均スコア: {top_bottleneck['平均スコア']:.2f}（目標: 3.5以上）\n"
+            f"- バラツキ: {top_bottleneck['バラツキ']:.2f}\n"
+            f"- 対象人数: {int(top_bottleneck['人数'])}名\n\n"
+            f"**推奨アクション**: この組織への集中的な教育プログラムを最優先で実施",
+            icon="⚠️"
+        )
     
     # 次のステップへの誘導
     st.markdown("---")
@@ -225,7 +385,7 @@ def show_root_cause_analysis(df_skill, target_location, skill_names):
     with col_next1:
         if st.button(f"📋 {target_location} のアクションプランを作成", use_container_width=True, type="primary"):
             st.session_state.selected_menu = "📋 アクションプラン"
-            st.session_state.priority_skill = priority_skill
+            st.session_state.priority_skill = f"{priority_process} - {priority_category}"
             st.rerun()
     
     with col_next2:
@@ -233,4 +393,4 @@ def show_root_cause_analysis(df_skill, target_location, skill_names):
             st.session_state.selected_menu = "📊 エグゼクティブサマリー"
             st.rerun()
     
-    return priority_skill
+    return f"{priority_process} - {priority_category}"
