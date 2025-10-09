@@ -8,19 +8,35 @@ from datetime import date, timedelta
 def generate_dummy_data():
     """
     鉄鋼業向けのダミーデータを生成
-    シフトローテーション: 4日日勤 → 2日休み → 4日夜勤 → 2日休み（3チーム制）
+    新しい30日間のダミーデータ（daily_production_dummy.csv）を優先的に読み込み
     
     Returns:
         tuple: (df_skill, df_daily_prod, skill_hierarchy, all_skills, 
                 skill_to_category, skill_categories, processes)
     """
+    import os
+    
+    # 新しいダミーデータのパス
+    new_dummy_path = os.path.join(os.path.dirname(__file__), 'data', 'daily_production_dummy.csv')
+    
+    # 新しいダミーデータが存在するか確認
+    use_new_dummy = os.path.exists(new_dummy_path)
+    
+    if use_new_dummy:
+        print(f"✅ 新しいダミーデータを読み込みます: {new_dummy_path}")
+    else:
+        print("⚠️ 従来のダミーデータ生成ロジックを使用します")
+    
     # --- 定義 ---
     np.random.seed(42)
     num_data = 300  # 従業員数を増やす（各拠点×各工程で十分な人数を確保）
     locations = ['日本 (JP)', '拠点A (IN)', '拠点B (BR)', '拠点C (VN)']
     
-    # 鉄鋼業の工程
-    processes = ['製銑', '製鋼', '圧延', '表面処理', '出荷']
+    # 工程（新しいダミーデータに合わせて変更）
+    if use_new_dummy:
+        processes = ['加工', '組立', '検査']
+    else:
+        processes = ['製銑', '製鋼', '圧延', '表面処理', '出荷']
     
     # チーム（3チーム制でローテーション）
     teams = ['Aチーム', 'Bチーム', 'Cチーム']
@@ -28,58 +44,84 @@ def generate_dummy_data():
     shifts = ['日勤', '夜勤']
     
     # スキルカテゴリとスキルの階層構造
-    skill_hierarchy = {
-        '設備操作': {
-            'description': '製造設備の操作・制御能力',
-            'skills': [
-                '高炉操作',
-                '転炉操作',
-                '圧延機操作',
-                'めっき設備操作',
-                '搬送設備操作'
-            ]
-        },
-        '品質管理': {
-            'description': '製品品質の検査・管理能力',
-            'skills': [
-                '成分分析',
-                '寸法測定',
-                '表面検査',
-                '非破壊検査',
-                '品質記録'
-            ]
-        },
-        '設備保全': {
-            'description': '設備の点検・保守・修理能力',
-            'skills': [
-                '日常点検',
-                '予防保全',
-                '故障対応',
-                '設備診断',
-                '部品交換'
-            ]
-        },
-        '工程管理': {
-            'description': '生産計画・進捗管理能力',
-            'skills': [
-                '生産計画',
-                '工程監視',
-                '在庫管理',
-                'トラブル対応',
-                '改善活動'
-            ]
-        },
-        '安全環境': {
-            'description': '安全管理・環境管理能力',
-            'skills': [
-                '危険予知',
-                '作業手順遵守',
-                '保護具使用',
-                '環境測定',
-                '異常時対応'
-            ]
+    if use_new_dummy:
+        # 新しいダミーデータ用のスキル階層
+        skill_hierarchy = {
+            '技術力': {
+                'description': '技術的な能力',
+                'skills': ['技術力_A', '技術力_B', '技術力_C']
+            },
+            '安全意識': {
+                'description': '安全に対する意識',
+                'skills': ['安全意識_A', '安全意識_B', '安全意識_C']
+            },
+            '品質意識': {
+                'description': '品質に対する意識',
+                'skills': ['品質意識_A', '品質意識_B', '品質意識_C']
+            },
+            'チームワーク': {
+                'description': 'チームで働く能力',
+                'skills': ['チームワーク_A', 'チームワーク_B', 'チームワーク_C']
+            },
+            '改善提案力': {
+                'description': '改善を提案する能力',
+                'skills': ['改善提案力_A', '改善提案力_B', '改善提案力_C']
+            }
         }
-    }
+    else:
+        # 従来の鉄鋼業向けスキル階層
+        skill_hierarchy = {
+            '設備操作': {
+                'description': '製造設備の操作・制御能力',
+                'skills': [
+                    '高炉操作',
+                    '転炉操作',
+                    '圧延機操作',
+                    'めっき設備操作',
+                    '搬送設備操作'
+                ]
+            },
+            '品質管理': {
+                'description': '製品品質の検査・管理能力',
+                'skills': [
+                    '成分分析',
+                    '寸法測定',
+                    '表面検査',
+                    '非破壊検査',
+                    '品質記録'
+                ]
+            },
+            '設備保全': {
+                'description': '設備の点検・保守・修理能力',
+                'skills': [
+                    '日常点検',
+                    '予防保全',
+                    '故障対応',
+                    '設備診断',
+                    '部品交換'
+                ]
+            },
+            '工程管理': {
+                'description': '生産計画・進捗管理能力',
+                'skills': [
+                    '生産計画',
+                    '工程監視',
+                    '在庫管理',
+                    'トラブル対応',
+                    '改善活動'
+                ]
+            },
+            '安全環境': {
+                'description': '安全管理・環境管理能力',
+                'skills': [
+                    '危険予知',
+                    '作業手順遵守',
+                    '保護具使用',
+                    '環境測定',
+                    '異常時対応'
+                ]
+            }
+        }
     
     # スキルカテゴリリスト
     skill_categories = list(skill_hierarchy.keys())
@@ -91,6 +133,42 @@ def generate_dummy_data():
         for skill in info['skills']:
             all_skills.append(skill)
             skill_to_category[skill] = category
+
+    # --- 新しいダミーデータを読み込む場合 ---
+    if use_new_dummy:
+        # 日次生産データを読み込み
+        df_daily_prod = pd.read_csv(new_dummy_path)
+        df_daily_prod['日付'] = pd.to_datetime(df_daily_prod['日付'])
+        
+        # スキルデータは従来通り生成（簡易版）
+        skill_data = {
+            '拠点': ['東京工場'] * 100,  # 新しいダミーデータは東京工場のみ
+            '工程': np.random.choice(processes, 100),
+            'チーム': np.random.choice(teams, 100),
+            '従業員ID': [f'EMP_{i+1:04d}' for i in range(100)],
+            '評価日': [date.today() - timedelta(days=np.random.randint(1, 180)) for _ in range(100)]
+        }
+        
+        # 各スキルのスコアを生成
+        for skill in all_skills:
+            skill_data[skill] = np.random.randint(2, 5, 100)
+        
+        df_skill = pd.DataFrame(skill_data)
+        
+        # カテゴリ別の平均スコアを計算
+        for category in skill_categories:
+            category_skills = skill_hierarchy[category]['skills']
+            df_skill[f'{category}_平均'] = df_skill[category_skills].mean(axis=1).round(2)
+        
+        # 総合スキルスコアを追加
+        df_skill['総合スキルスコア'] = df_skill[all_skills].mean(axis=1).round(2)
+        df_skill['生産効率 (%)'] = (60 + df_skill['総合スキルスコア'] * 8 + np.random.randn(100) * 4).clip(75, 98).round(1)
+        df_skill['品質不良率 (%)'] = (8 - df_skill['総合スキルスコア'] * 1.2 + np.random.randn(100) * 1).clip(0.5, 8).round(1)
+        
+        return df_skill, df_daily_prod, skill_hierarchy, all_skills, skill_to_category, skill_categories, processes
+    
+    # --- 従来のダミーデータ生成ロジック ---
+    # （以下、従来のコードをそのまま維持）
 
     # --- スキルデータ生成 ---
     skill_data = {

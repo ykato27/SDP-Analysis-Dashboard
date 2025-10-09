@@ -118,12 +118,27 @@ with st.sidebar:
     if st.session_state.selected_menu != "🏠 ホーム":
         st.markdown("### 🎯 分析対象設定")
         
-        overseas_locations = [loc for loc in df_skill['拠点'].unique() if loc != '日本 (JP)']
+        # 利用可能な拠点を取得
+        available_locations = df_skill['拠点'].unique().tolist()
+        
+        # 新しいダミーデータ（東京工場）がある場合はそれを使用
+        if '東京工場' in available_locations:
+            default_location = '東京工場'
+            display_locations = ['東京工場']
+        else:
+            # 従来のデータの場合
+            overseas_locations = [loc for loc in available_locations if loc != '日本 (JP)']
+            default_location = overseas_locations[0] if overseas_locations else available_locations[0]
+            display_locations = overseas_locations if overseas_locations else available_locations
         
         selected_location = st.selectbox(
             '詳細分析対象拠点',
-            options=overseas_locations,
-            index=0 if st.session_state.target_location is None else overseas_locations.index(st.session_state.target_location) if st.session_state.target_location in overseas_locations else 0
+            options=display_locations,
+            index=0 if st.session_state.target_location is None else (
+                display_locations.index(st.session_state.target_location) 
+                if st.session_state.target_location in display_locations 
+                else 0
+            )
         )
         
         if selected_location != st.session_state.target_location:

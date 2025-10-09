@@ -81,12 +81,12 @@ def show_integrated_quality_analysis(df_daily_prod, df_skill, target_location, s
     st.markdown("---")
     
     # =============================================================================
-    # 1. 複合時系列グラフ（1つのグラフに2軸表示：スキル×品質）
+    # 1. 複合時系列グラフ（上段=日勤、下段=夜勤、棒グラフ+折れ線）
     # =============================================================================
     st.markdown("""
     <div class="section-header">
         <h2 class="section-title">📊 分析① 複合時系列グラフ（2軸）</h2>
-        <p class="section-subtitle">チーム×シフトで層別したスキルと品質の関係を1つのグラフで把握</p>
+        <p class="section-subtitle">日勤・夜勤別にスキル（棒）と品質（折れ線）の関係を把握</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -95,75 +95,89 @@ def show_integrated_quality_analysis(df_daily_prod, df_skill, target_location, s
     # チーム別にデータを準備
     teams = sorted(df_process['チーム'].unique())
     
-    # 2軸グラフを作成
-    fig1 = make_subplots(specs=[[{"secondary_y": True}]])
+    # 2段のサブプロット作成（上段=日勤、下段=夜勤）
+    fig1 = make_subplots(
+        rows=2, cols=1,
+        subplot_titles=['☀️ 日勤シフト', '🌙 夜勤シフト'],
+        specs=[[{"secondary_y": True}], [{"secondary_y": True}]],
+        vertical_spacing=0.15
+    )
     
-    # カラーマップ（チーム×シフトの組み合わせ）
-    team_shift_colors = {
-        ('Aチーム', '日勤'): '#1f77b4',
-        ('Aチーム', '夜勤'): '#5da5da',
-        ('Bチーム', '日勤'): '#ff7f0e',
-        ('Bチーム', '夜勤'): '#ffb366',
-        ('Cチーム', '日勤'): '#2ca02c',
-        ('Cチーム', '夜勤'): '#5dd05d'
+    # カラーマップ
+    team_colors = {
+        'Aチーム': '#1f77b4',
+        'Bチーム': '#ff7f0e',
+        'Cチーム': '#2ca02c'
     }
     
-    # チーム×シフトごとにプロット
-    for team in teams:
-        for shift in ['日勤', '夜勤']:
-            df_team_shift = df_process[(df_process['チーム'] == team) & (df_process['シフト'] == shift)].sort_values('日付')
+    shifts = [('日勤', 1), ('夜勤', 2)]
+    
+    # シフトごとにプロット
+    for shift_name, row in shifts:
+        df_shift = df_process[df_process['シフト'] == shift_name].copy()
+        
+        if df_shift.empty:
+            continue
+        
+        # チーム別にプロット
+        for team in teams:
+            df_team_shift = df_shift[df_shift['チーム'] == team].sort_values('日付')
             
             if df_team_shift.empty:
                 continue
             
-            color = team_shift_colors.get((team, shift), '#888888')
-            line_style = 'solid' if shift == '日勤' else 'dash'
+            color = team_colors.get(team, '#888888')
             
-            # スキルスコア（左軸）
+            # スキルスコア（棒グラフ、左軸）
             if skill_col in df_team_shift.columns:
                 fig1.add_trace(
-                    go.Scatter(
+                    go.Bar(
                         x=df_team_shift['日付'],
                         y=df_team_shift[skill_col],
-                        name=f'{team}-{shift} スキル',
-                        line=dict(color=color, width=2.5, dash=line_style),
-                        mode='lines+markers',
-                        marker=dict(size=6),
-                        legendgroup=f'{team}_{shift}',
-                        hovertemplate=f'<b>{team} - {shift}</b><br>日付: %{{x}}<br>スキル: %{{y:.2f}}<extra></extra>'
+                        name=f'{team}',
+                        marker_color=color,
+                        opacity=0.7,
+                        legendgroup=f'{shift_name}_{team}',
+                        showlegend=(row == 1),
+                        hovertemplate=f'<b>{team}</b><br>日付: %{{x}}<br>スキル: %{{y:.2f}}<extra></extra>'
                     ),
+                    row=row, col=1,
                     secondary_y=False
                 )
             
-            # 品質不良率（右軸）- 細い点線で表示
+            # 品質不良率（折れ線、右軸）
             fig1.add_trace(
                 go.Scatter(
                     x=df_team_shift['日付'],
                     y=df_team_shift['品質不良率 (%)'],
-                    name=f'{team}-{shift} 不良率',
-                    line=dict(color=color, width=1.5, dash='dot'),
+                    name=f'{team} 不良率',
+                    line=dict(color=color, width=3, dash='solid'),
                     mode='lines+markers',
-                    marker=dict(size=4, symbol='diamond'),
-                    legendgroup=f'{team}_{shift}',
+                    marker=dict(size=8, symbol='diamond'),
+                    legendgroup=f'{shift_name}_{team}',
                     showlegend=False,
-                    hovertemplate=f'<b>{team} - {shift}</b><br>日付: %{{x}}<br>不良率: %{{y:.2f}}%<extra></extra>'
+                    hovertemplate=f'<b>{team}</b><br>日付: %{{x}}<br>不良率: %{{y:.2f}}%<extra></extra>'
                 ),
+                row=row, col=1,
                 secondary_y=True
             )
     
     # 軸設定
-    fig1.update_xaxes(title_text="日付")
-    fig1.update_yaxes(title_text=f"{selected_category}スキルスコア", range=[1, 5], secondary_y=False)
-    fig1.update_yaxes(title_text="品質不良率 (%)", secondary_y=True)
+    fig1.update_xaxes(title_text="日付", row=2, col=1)
+    fig1.update_yaxes(title_text=f"{selected_category}スキル", range=[1, 5], row=1, col=1, secondary_y=False)
+    fig1.update_yaxes(title_text="品質不良率 (%)", row=1, col=1, secondary_y=True)
+    fig1.update_yaxes(title_text=f"{selected_category}スキル", range=[1, 5], row=2, col=1, secondary_y=False)
+    fig1.update_yaxes(title_text="品質不良率 (%)", row=2, col=1, secondary_y=True)
     
     fig1.update_layout(
-        title=f"{selected_process} - スキル×品質推移（太線=スキル、細点線=不良率、実線=日勤、破線=夜勤）",
+        title=f"{selected_process} - スキル（棒）×品質（折れ線）推移",
         hovermode='x unified',
-        height=600,
+        height=800,
+        barmode='group',
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=-0.15,
+            y=-0.12,
             xanchor="center",
             x=0.5
         )
