@@ -81,12 +81,12 @@ def show_integrated_quality_analysis(df_daily_prod, df_skill, target_location, s
     st.markdown("---")
     
     # =============================================================================
-    # 1. 複合時系列グラフ（チーム×シフトで層別表示）
+    # 1. 複合時系列グラフ（1つのグラフに2軸表示：スキル×品質）
     # =============================================================================
     st.markdown("""
     <div class="section-header">
-        <h2 class="section-title">📊 分析① 複合時系列グラフ</h2>
-        <p class="section-subtitle">チーム×シフトで層別したスキルと品質の時系列推移</p>
+        <h2 class="section-title">📊 分析① 複合時系列グラフ（2軸）</h2>
+        <p class="section-subtitle">チーム×シフトで層別したスキルと品質の関係を1つのグラフで把握</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -95,16 +95,8 @@ def show_integrated_quality_analysis(df_daily_prod, df_skill, target_location, s
     # チーム別にデータを準備
     teams = sorted(df_process['チーム'].unique())
     
-    # 2つのサブプロット作成（上:スキル、下:品質）
-    fig1 = make_subplots(
-        rows=2, cols=1,
-        subplot_titles=[
-            f'{selected_category}スキル推移（チーム×シフト別）',
-            '品質不良率推移（チーム×シフト別）'
-        ],
-        vertical_spacing=0.12,
-        row_heights=[0.5, 0.5]
-    )
+    # 2軸グラフを作成
+    fig1 = make_subplots(specs=[[{"secondary_y": True}]])
     
     # カラーマップ（チーム×シフトの組み合わせ）
     team_shift_colors = {
@@ -127,51 +119,51 @@ def show_integrated_quality_analysis(df_daily_prod, df_skill, target_location, s
             color = team_shift_colors.get((team, shift), '#888888')
             line_style = 'solid' if shift == '日勤' else 'dash'
             
-            # スキルスコア（上段）
+            # スキルスコア（左軸）
             if skill_col in df_team_shift.columns:
                 fig1.add_trace(
                     go.Scatter(
                         x=df_team_shift['日付'],
                         y=df_team_shift[skill_col],
-                        name=f'{team} - {shift}',
+                        name=f'{team}-{shift} スキル',
                         line=dict(color=color, width=2.5, dash=line_style),
                         mode='lines+markers',
-                        marker=dict(size=5),
+                        marker=dict(size=6),
                         legendgroup=f'{team}_{shift}',
                         hovertemplate=f'<b>{team} - {shift}</b><br>日付: %{{x}}<br>スキル: %{{y:.2f}}<extra></extra>'
                     ),
-                    row=1, col=1
+                    secondary_y=False
                 )
             
-            # 品質不良率（下段）
+            # 品質不良率（右軸）- 細い点線で表示
             fig1.add_trace(
                 go.Scatter(
                     x=df_team_shift['日付'],
                     y=df_team_shift['品質不良率 (%)'],
-                    name=f'{team} - {shift}',
-                    line=dict(color=color, width=2.5, dash=line_style),
+                    name=f'{team}-{shift} 不良率',
+                    line=dict(color=color, width=1.5, dash='dot'),
                     mode='lines+markers',
-                    marker=dict(size=5),
+                    marker=dict(size=4, symbol='diamond'),
                     legendgroup=f'{team}_{shift}',
                     showlegend=False,
                     hovertemplate=f'<b>{team} - {shift}</b><br>日付: %{{x}}<br>不良率: %{{y:.2f}}%<extra></extra>'
                 ),
-                row=2, col=1
+                secondary_y=True
             )
     
     # 軸設定
-    fig1.update_xaxes(title_text="日付", row=2, col=1)
-    fig1.update_yaxes(title_text="スキルスコア", range=[1, 5], row=1, col=1)
-    fig1.update_yaxes(title_text="品質不良率 (%)", row=2, col=1)
+    fig1.update_xaxes(title_text="日付")
+    fig1.update_yaxes(title_text=f"{selected_category}スキルスコア", range=[1, 5], secondary_y=False)
+    fig1.update_yaxes(title_text="品質不良率 (%)", secondary_y=True)
     
     fig1.update_layout(
-        title=f"{selected_process} - スキル・品質推移（実線=日勤、破線=夜勤）",
+        title=f"{selected_process} - スキル×品質推移（太線=スキル、細点線=不良率、実線=日勤、破線=夜勤）",
         hovermode='x unified',
-        height=700,
+        height=600,
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.05,
+            y=-0.15,
             xanchor="center",
             x=0.5
         )
@@ -204,98 +196,88 @@ def show_integrated_quality_analysis(df_daily_prod, df_skill, target_location, s
     st.markdown("---")
     
     # =============================================================================
-    # 2. 左右ヒストグラム比較（日勤 vs 夜勤）
+    # 2. 箱ひげ図（日勤 vs 夜勤の分布比較）
     # =============================================================================
     st.markdown("""
     <div class="section-header">
-        <h2 class="section-title">📊 分析② 分布比較（日勤 vs 夜勤）</h2>
-        <p class="section-subtitle">スキルと品質の分布を左右で比較</p>
+        <h2 class="section-title">📊 分析② 箱ひげ図（日勤 vs 夜勤）</h2>
+        <p class="section-subtitle">スキルと品質の分布を箱ひげ図で比較（平均・バラツキ・外れ値を把握）</p>
     </div>
     """, unsafe_allow_html=True)
     
     if skill_col in df_process.columns:
-        # 1行2列のサブプロット
+        # 2列のサブプロット（左:スキル、右:品質）
         fig2 = make_subplots(
             rows=1, cols=2,
-            subplot_titles=['☀️ 日勤', '🌙 夜勤'],
+            subplot_titles=[
+                f'{selected_category}スキル分布',
+                '品質不良率分布'
+            ],
             horizontal_spacing=0.15
         )
         
         df_day = df_process[df_process['シフト'] == '日勤']
         df_night = df_process[df_process['シフト'] == '夜勤']
         
-        # 日勤側（左）- スキルと品質の2つのヒストグラム
+        # スキルの箱ひげ図（左側）
         if not df_day.empty:
-            # スキルヒストグラム（横向き）
             fig2.add_trace(
-                go.Histogram(
+                go.Box(
                     y=df_day[skill_col],
-                    name='スキル',
+                    name='日勤',
                     marker_color='#2E86DE',
-                    opacity=0.7,
-                    nbinsy=15,
-                    orientation='h',
+                    boxmean='sd',  # 平均と標準偏差を表示
                     showlegend=True
                 ),
                 row=1, col=1
             )
-            
-            # 品質ヒストグラム（横向き）
+        
+        if not df_night.empty:
             fig2.add_trace(
-                go.Histogram(
-                    y=df_day['品質不良率 (%)'],
-                    name='品質不良率',
-                    marker_color='#FF6348',
-                    opacity=0.7,
-                    nbinsy=15,
-                    orientation='h',
-                    showlegend=True,
-                    yaxis='y2'
+                go.Box(
+                    y=df_night[skill_col],
+                    name='夜勤',
+                    marker_color='#5F27CD',
+                    boxmean='sd',
+                    showlegend=True
                 ),
                 row=1, col=1
             )
         
-        # 夜勤側（右）- スキルと品質の2つのヒストグラム
-        if not df_night.empty:
-            # スキルヒストグラム（横向き）
+        # 品質不良率の箱ひげ図（右側）
+        if not df_day.empty:
             fig2.add_trace(
-                go.Histogram(
-                    y=df_night[skill_col],
-                    name='スキル',
-                    marker_color='#5F27CD',
-                    opacity=0.7,
-                    nbinsy=15,
-                    orientation='h',
+                go.Box(
+                    y=df_day['品質不良率 (%)'],
+                    name='日勤',
+                    marker_color='#FF6348',
+                    boxmean='sd',
                     showlegend=False
                 ),
                 row=1, col=2
             )
-            
-            # 品質ヒストグラム（横向き）
+        
+        if not df_night.empty:
             fig2.add_trace(
-                go.Histogram(
+                go.Box(
                     y=df_night['品質不良率 (%)'],
-                    name='品質不良率',
+                    name='夜勤',
                     marker_color='#EE5A6F',
-                    opacity=0.7,
-                    nbinsy=15,
-                    orientation='h',
-                    showlegend=False,
-                    yaxis='y2'
+                    boxmean='sd',
+                    showlegend=False
                 ),
                 row=1, col=2
             )
         
         # 軸設定
-        fig2.update_xaxes(title_text="頻度", row=1, col=1)
-        fig2.update_xaxes(title_text="頻度", row=1, col=2)
-        fig2.update_yaxes(title_text="値", row=1, col=1)
-        fig2.update_yaxes(title_text="値", row=1, col=2)
+        fig2.update_xaxes(title_text="シフト", row=1, col=1)
+        fig2.update_xaxes(title_text="シフト", row=1, col=2)
+        fig2.update_yaxes(title_text="スキルスコア", row=1, col=1)
+        fig2.update_yaxes(title_text="品質不良率 (%)", row=1, col=2)
         
         fig2.update_layout(
-            title=f"{selected_process} - シフト別分布比較",
-            height=600,
-            barmode='overlay'
+            title=f"{selected_process} - シフト別分布比較（箱=四分位範囲、線=中央値、◇=平均、ひげ=1.5×IQR）",
+            height=500
         )
         
         st.plotly_chart(fig2, use_container_width=True)
@@ -308,16 +290,20 @@ def show_integrated_quality_analysis(df_daily_prod, df_skill, target_location, s
             
             if not df_day.empty and not df_night.empty:
                 stat_data = {
-                    '指標': ['平均', '中央値', '標準偏差'],
+                    '指標': ['平均', '中央値', '標準偏差', '第1四分位', '第3四分位'],
                     '日勤': [
                         f"{df_day[skill_col].mean():.2f}",
                         f"{df_day[skill_col].median():.2f}",
-                        f"{df_day[skill_col].std():.2f}"
+                        f"{df_day[skill_col].std():.2f}",
+                        f"{df_day[skill_col].quantile(0.25):.2f}",
+                        f"{df_day[skill_col].quantile(0.75):.2f}"
                     ],
                     '夜勤': [
                         f"{df_night[skill_col].mean():.2f}",
                         f"{df_night[skill_col].median():.2f}",
-                        f"{df_night[skill_col].std():.2f}"
+                        f"{df_night[skill_col].std():.2f}",
+                        f"{df_night[skill_col].quantile(0.25):.2f}",
+                        f"{df_night[skill_col].quantile(0.75):.2f}"
                     ]
                 }
                 
@@ -328,16 +314,20 @@ def show_integrated_quality_analysis(df_daily_prod, df_skill, target_location, s
             
             if not df_day.empty and not df_night.empty:
                 stat_data = {
-                    '指標': ['平均', '中央値', '標準偏差'],
+                    '指標': ['平均', '中央値', '標準偏差', '第1四分位', '第3四分位'],
                     '日勤': [
                         f"{df_day['品質不良率 (%)'].mean():.2f}%",
                         f"{df_day['品質不良率 (%)'].median():.2f}%",
-                        f"{df_day['品質不良率 (%)'].std():.2f}%"
+                        f"{df_day['品質不良率 (%)'].std():.2f}%",
+                        f"{df_day['品質不良率 (%)'].quantile(0.25):.2f}%",
+                        f"{df_day['品質不良率 (%)'].quantile(0.75):.2f}%"
                     ],
                     '夜勤': [
                         f"{df_night['品質不良率 (%)'].mean():.2f}%",
                         f"{df_night['品質不良率 (%)'].median():.2f}%",
-                        f"{df_night['品質不良率 (%)'].std():.2f}%"
+                        f"{df_night['品質不良率 (%)'].std():.2f}%",
+                        f"{df_night['品質不良率 (%)'].quantile(0.25):.2f}%",
+                        f"{df_night['品質不良率 (%)'].quantile(0.75):.2f}%"
                     ]
                 }
                 
